@@ -404,7 +404,32 @@ def agg_totals_by_team(con: sqlite3.Connection, guild_id: int, team: int) -> Tup
         get_aggregate(guild_id, scope, "incomplete"),
         att,
     )
-
+# ---------- Répartition horaire (toutes attaques du serveur) ----------
+@with_db
+def hourly_split_all(con: sqlite3.Connection, guild_id: int) -> tuple[int, int, int, int]:
+    rows = con.execute("SELECT created_ts FROM messages WHERE guild_id=?", (guild_id,)).fetchall()
+    if rows:
+        # Buckets: Matin (6–10), Journée (10–18), Soir (18–00), Nuit (00–6)
+        counts = [0, 0, 0, 0]  # morning, afternoon, evening, night
+        for (ts,) in rows:
+            dt_paris = datetime.fromtimestamp(int(ts), tz=timezone.utc).astimezone(ZoneInfo("Europe/Paris"))
+            h = dt_paris.hour
+            if 6 <= h < 10:
+                counts[0] += 1
+            elif 10 <= h < 18:
+                counts[1] += 1
+            elif 18 <= h < 24:
+                counts[2] += 1
+            else:
+                counts[3] += 1
+        return tuple(counts)
+    # fallback si pas (encore) d’événements en DB → on lit les agrégats seedés
+    return (
+        get_aggregate(guild_id, "hourly", "morning"),
+        get_aggregate(guild_id, "hourly", "afternoon"),
+        get_aggregate(guild_id, "hourly", "evening"),
+        get_aggregate(guild_id, "hourly", "night"),
+    )
 # ---------- Helpers suppression ----------
 @with_db
 def get_message_info(con: sqlite3.Connection, message_id: int):
