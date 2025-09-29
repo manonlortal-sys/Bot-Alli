@@ -70,7 +70,7 @@ if __name__ == "__main__":
     print("⚡ Démarrage du bot...")
     try:
         create_db()
-        # ⚙️ Config du NOUVEAU serveur (tes IDs)
+        # ⚙️ Config du serveur (tes IDs)
         upsert_guild_config(
             guild_id=1139550147190214727,          # Serveur
             alert_channel_id=1139550892471889971,  # Canal alertes
