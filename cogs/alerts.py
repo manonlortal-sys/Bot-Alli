@@ -1,4 +1,4 @@
-from typing import List, Optional, Callable
+from typing import List, Optional
 import time
 import discord
 from discord.ext import commands
@@ -26,6 +26,18 @@ EMOJI_JOIN    = "👍"
 # ---------- Cache anti-spam ----------
 # { (guild_id, team_id): last_timestamp }
 last_alerts: dict[tuple[int, int], float] = {}
+
+# ---------- Emojis personnalisés par équipe ----------
+# team_id -> PartialEmoji
+TEAM_EMOJIS: dict[int, discord.PartialEmoji] = {
+    1: discord.PartialEmoji(name="Wanted", id=1421870161048375357),
+    2: discord.PartialEmoji(name="Wanted", id=1421870161048375357),
+    3: discord.PartialEmoji(name="Snowflake", id=1421870090588131441),
+    4: discord.PartialEmoji(name="SecteurK", id=1421870011902988439),
+    5: discord.PartialEmoji(name="LaBande", id=1422120278418395197),
+    6: discord.PartialEmoji(name="HagraTime", id=1422120372836503622),
+    7: discord.PartialEmoji(name="HagraPasLtime", id=1422120467812323339),
+}
 
 # ---------- Embed constructeur ----------
 async def build_ping_embed(msg: discord.Message) -> discord.Embed:
@@ -178,12 +190,10 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
         now = time.time()
         key = (guild.id, team_id)
 
-        # Vérification anti-spam (60s par équipe)
+        # Anti-spam : 1 alerte / 60s par équipe
         if key in last_alerts and now - last_alerts[key] < 60:
-            await interaction.response.send_message("⏳ L'alerte a déjà été envoyée par un autre joueur!", ephemeral=True)
+            await interaction.response.send_message("L'alerte a déjà été envoyée par un autre joueur!", ephemeral=True)
             return
-
-        # Mise à jour du cache
         last_alerts[key] = now
 
         try:
@@ -218,12 +228,15 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
         except Exception:
             pass
 
-    # Créer un bouton par équipe
+    # Créer un bouton par équipe (emoji custom si dispo)
     for t in teams:
+        tid = int(t["team_id"])
+        emoji = TEAM_EMOJIS.get(tid, "🔔")
+
         btn = discord.ui.Button(
             label=str(t["label"])[:80],
             style=discord.ButtonStyle.danger,
-            emoji="🔔",
+            emoji=emoji,
             custom_id=f"pingpanel:team:{t['team_id']}",
         )
 
