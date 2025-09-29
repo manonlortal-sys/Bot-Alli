@@ -339,14 +339,32 @@ def get_aggregate(con: sqlite3.Connection, guild_id: int, scope: str, key: str) 
     return int(row["value"]) if row else 0
 
 @with_db
-def seed_aggregates(con: sqlite3.Connection, guild_id: int, global_tot: dict, team1: dict, team2: dict, hourly: dict):
-    for key, val in global_tot.items():
+def seed_aggregates(
+    con: sqlite3.Connection,
+    guild_id: int,
+    global_tot: dict,
+    team1: dict,
+    team2: dict,
+    hourly: dict,
+    team3: Optional[dict] = None,
+    team4: Optional[dict] = None,
+):
+    # Remplacer complètement la baseline pour la guilde
+    con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
+    # Global
+    for key, val in (global_tot or {}).items():
         set_aggregate(guild_id, "global", key, int(val))
-    for key, val in team1.items():
-        set_aggregate(guild_id, "team1", key, int(val))
-    for key, val in team2.items():
-        set_aggregate(guild_id, "team2", key, int(val))
-    for key, val in hourly.items():
+    # Teams 1..4
+    for scope, data in (
+        ("team1", team1 or {}),
+        ("team2", team2 or {}),
+        ("team3", team3 or {}),
+        ("team4", team4 or {}),
+    ):
+        for key, val in data.items():
+            set_aggregate(guild_id, scope, key, int(val))
+    # Hourly
+    for key, val in (hourly or {}).items():
         set_aggregate(guild_id, "hourly", key, int(val))
 
 @with_db
@@ -358,9 +376,16 @@ def seed_leaderboard_totals(con: sqlite3.Connection, guild_id: int, type_: str, 
             VALUES (?,?,?,?)
         """, (guild_id, type_, int(uid), int(cnt)))
 
-# ---------- Aggregates-aware readers ----------
+@with_db
+def clear_baseline(con: sqlite3.Connection, guild_id: int):
+    """Baseline = 0 quand aucun snapshot n'est trouvé : on vide les agrégats et les totaux seedés."""
+    con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
+    con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type IN ('defense','pingeur')", (guild_id,))
+
+# ---------- Aggregates-aware readers (baseline + deltas live) ----------
 @with_db
 def agg_totals_all(con: sqlite3.Connection, guild_id: int) -> Tuple[int, int, int, int]:
+    # Live (deltas)
     row = con.execute("""
         SELECT
             SUM(CASE WHEN outcome='win'  THEN 1 ELSE 0 END) AS w,
@@ -370,19 +395,22 @@ def agg_totals_all(con: sqlite3.Connection, guild_id: int) -> Tuple[int, int, in
         FROM messages
         WHERE guild_id=?
     """, (guild_id,)).fetchone()
-    w,l,inc,tot = (row["w"] or 0), (row["l"] or 0), (row["inc"] or 0), (row["tot"] or 0)
-    if tot > 0:
-        return (w, l, inc, tot)
-    att = get_aggregate(guild_id, "global", "attacks")
-    return (
-        get_aggregate(guild_id, "global", "wins"),
-        get_aggregate(guild_id, "global", "losses"),
-        get_aggregate(guild_id, "global", "incomplete"),
-        att,
-    )
+    w_live = int(row["w"] or 0)
+    l_live = int(row["l"] or 0)
+    inc_live = int(row["inc"] or 0)
+    att_live = int(row["tot"] or 0)
+
+    # Baseline snapshot
+    w_base  = get_aggregate(guild_id, "global", "wins")
+    l_base  = get_aggregate(guild_id, "global", "losses")
+    inc_base = get_aggregate(guild_id, "global", "incomplete")
+    att_base = get_aggregate(guild_id, "global", "attacks")
+
+    return (w_base + w_live, l_base + l_live, inc_base + inc_live, att_base + att_live)
 
 @with_db
 def agg_totals_by_team(con: sqlite3.Connection, guild_id: int, team: int) -> Tuple[int, int, int, int]:
+    # Live (deltas)
     row = con.execute("""
         SELECT
             SUM(CASE WHEN outcome='win'  THEN 1 ELSE 0 END) AS w,
@@ -392,44 +420,47 @@ def agg_totals_by_team(con: sqlite3.Connection, guild_id: int, team: int) -> Tup
         FROM messages
         WHERE guild_id=? AND team=?
     """, (guild_id, team)).fetchone()
-    w,l,inc,tot = (row["w"] or 0), (row["l"] or 0), (row["inc"] or 0), (row["tot"] or 0)
-    if tot > 0:
-        return (w, l, inc, tot)
-    # fallback snapshot scopes support only team1/team2 historiquement
-    scope = "team1" if team == 1 else "team2"
-    att = get_aggregate(guild_id, scope, "attacks")
-    return (
-        get_aggregate(guild_id, scope, "wins"),
-        get_aggregate(guild_id, scope, "losses"),
-        get_aggregate(guild_id, scope, "incomplete"),
-        att,
-    )
-# ---------- Répartition horaire (toutes attaques du serveur) ----------
+    w_live = int(row["w"] or 0)
+    l_live = int(row["l"] or 0)
+    inc_live = int(row["inc"] or 0)
+    att_live = int(row["tot"] or 0)
+
+    # Baseline snapshot pour la team 1..4
+    scope = f"team{team}" if team in (1, 2, 3, 4) else "team1"
+    w_base  = get_aggregate(guild_id, scope, "wins")
+    l_base  = get_aggregate(guild_id, scope, "losses")
+    inc_base = get_aggregate(guild_id, scope, "incomplete")
+    att_base = get_aggregate(guild_id, scope, "attacks")
+
+    return (w_base + w_live, l_base + l_live, inc_base + inc_live, att_base + att_live)
+
+# ---------- Répartition horaire (baseline + live) ----------
 @with_db
 def hourly_split_all(con: sqlite3.Connection, guild_id: int) -> tuple[int, int, int, int]:
+    # Live
     rows = con.execute("SELECT created_ts FROM messages WHERE guild_id=?", (guild_id,)).fetchall()
-    if rows:
-        # Buckets: Matin (6–10), Journée (10–18), Soir (18–00), Nuit (00–6)
-        counts = [0, 0, 0, 0]  # morning, afternoon, evening, night
-        for (ts,) in rows:
-            dt_paris = datetime.fromtimestamp(int(ts), tz=timezone.utc).astimezone(ZoneInfo("Europe/Paris"))
-            h = dt_paris.hour
-            if 6 <= h < 10:
-                counts[0] += 1
-            elif 10 <= h < 18:
-                counts[1] += 1
-            elif 18 <= h < 24:
-                counts[2] += 1
-            else:
-                counts[3] += 1
-        return tuple(counts)
-    # fallback si pas (encore) d’événements en DB → on lit les agrégats seedés
-    return (
+    live_counts = [0, 0, 0, 0]  # morning, afternoon, evening, night
+    for (ts,) in rows:
+        dt_paris = datetime.fromtimestamp(int(ts), tz=timezone.utc).astimezone(ZoneInfo("Europe/Paris"))
+        h = dt_paris.hour
+        if 6 <= h < 10:
+            live_counts[0] += 1
+        elif 10 <= h < 18:
+            live_counts[1] += 1
+        elif 18 <= h < 24:
+            live_counts[2] += 1
+        else:
+            live_counts[3] += 1
+
+    # Baseline
+    base_counts = [
         get_aggregate(guild_id, "hourly", "morning"),
         get_aggregate(guild_id, "hourly", "afternoon"),
         get_aggregate(guild_id, "hourly", "evening"),
         get_aggregate(guild_id, "hourly", "night"),
-    )
+    ]
+    return tuple(base_counts[i] + live_counts[i] for i in range(4))
+
 # ---------- Helpers suppression ----------
 @with_db
 def get_message_info(con: sqlite3.Connection, message_id: int):
