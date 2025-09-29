@@ -252,7 +252,7 @@ class VerifyCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @commands.Cog.listener())
+    @commands.Cog.listener()
     async def on_member_join(self, member: discord.Member):
         guild = member.guild
         channel: Optional[discord.TextChannel] = None
