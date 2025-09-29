@@ -235,10 +235,10 @@ class ValidationButtons(discord.ui.View):
             await interaction.response.send_message("⚠️ Membre introuvable (a peut-être quitté). Demande supprimée.", ephemeral=True)
             return
 
-        # Rôles base = guilde choisie + pair éventuel + Membre
+        # Rôles base = guilde choisie + pair éventuel + Membre (sauf si Invité)
         base_role_ids: List[int] = [self.chosen_role_id]
         base_role_ids += compute_pair_roles(self.chosen_label, self.chosen_role_id, interaction.guild)
-        if MEMBER_ROLE_ID not in base_role_ids:
+        if normalize_name(self.chosen_label) != "invité" and MEMBER_ROLE_ID not in base_role_ids:
             base_role_ids.append(MEMBER_ROLE_ID)
 
         applied_names: List[str] = []
@@ -478,10 +478,10 @@ class ModifyAllRolesView(discord.ui.View):
             return
 
         chosen_label, chosen_role_id = chosen
-        # Recalcule la base (guilde + pair + membre)
+        # Recalcule la base (guilde + pair + membre sauf si Invité)
         new_base: List[int] = [chosen_role_id]
         new_base += compute_pair_roles(chosen_label, chosen_role_id, self.guild)
-        if MEMBER_ROLE_ID not in new_base:
+        if normalize_name(chosen_label) != "invité" and MEMBER_ROLE_ID not in new_base:
             new_base.append(MEMBER_ROLE_ID)
 
         # Synchroniser base
