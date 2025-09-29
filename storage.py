@@ -420,22 +420,28 @@ def seed_aggregates_dynamic(
     Remplace entièrement la baseline snapshot pour la guilde (version dynamique).
     Scopes :
       - global
-      - team:{team_id}  (ex: team:1, team:5, ...)
+      - team:{team_id}
       - hourly
-    NOTE: on utilise la **même connexion** pour toutes les écritures.
+
+    NOTE: on écrit tout dans la même transaction/connexion (pas d'appel à set_aggregate()).
     """
+    # purge baseline
     con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
+
     # Global
     for key in ("attacks", "wins", "losses", "incomplete"):
         _set_aggregate_txn(con, guild_id, "global", key, int((global_tot or {}).get(key, 0)))
-    # Teams
+
+    # Teams (team:{id})
     for team_id, vals in (team_totals or {}).items():
         scope = f"team:{int(team_id)}"
         for key, val in (vals or {}).items():
             _set_aggregate_txn(con, guild_id, scope, key, int(val))
+
     # Hourly
     for key in ("morning", "afternoon", "evening", "night"):
         _set_aggregate_txn(con, guild_id, "hourly", key, int((hourly or {}).get(key, 0)))
+
 
 @with_db
 def seed_aggregates(
