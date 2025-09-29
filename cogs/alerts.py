@@ -1,4 +1,5 @@
 from typing import List, Optional, Callable
+import time
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -21,6 +22,10 @@ EMOJI_VICTORY = "🏆"
 EMOJI_DEFEAT  = "❌"
 EMOJI_INCOMP  = "😡"
 EMOJI_JOIN    = "👍"
+
+# ---------- Cache anti-spam ----------
+# { (guild_id, team_id): last_timestamp }
+last_alerts: dict[tuple[int, int], float] = {}
 
 # ---------- Embed constructeur ----------
 async def build_ping_embed(msg: discord.Message) -> discord.Embed:
@@ -170,6 +175,17 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
     teams = get_teams(guild.id)
 
     async def handle_click(interaction: discord.Interaction, role_id: int, team_id: int):
+        now = time.time()
+        key = (guild.id, team_id)
+
+        # Vérification anti-spam (60s par équipe)
+        if key in last_alerts and now - last_alerts[key] < 60:
+            await interaction.response.send_message("⏳ L'alerte a déjà été envoyée par un autre joueur!", ephemeral=True)
+            return
+
+        # Mise à jour du cache
+        last_alerts[key] = now
+
         try:
             await interaction.response.defer(ephemeral=True, thinking=False)
         except Exception:
