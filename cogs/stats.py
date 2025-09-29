@@ -1,5 +1,5 @@
 # cogs/stats.py
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -8,9 +8,9 @@ from discord.ext import commands
 from discord import app_commands
 
 from storage import (
-    get_player_stats,
-    get_player_recent_defenses,
-    get_player_hourly_counts,
+    get_leaderboard_value,          # 🆕 lire compteurs persistants
+    get_player_recent_defenses,     # inchangé (liste dépend des messages)
+    get_player_hourly_counts,       # inchangé (répartition dépend des messages)
 )
 
 EMOJI_WIN = "🏆"
@@ -32,16 +32,24 @@ class StatsCog(commands.Cog):
 
         target = member or interaction.user
 
-        # Lecture DB (avec garde-fou)
+        # Lecture des compteurs persistants (survivent aux resets via snapshot)
         try:
-            defenses, pings, wins, losses = get_player_stats(guild.id, target.id)
-            recent = get_player_recent_defenses(guild.id, target.id, limit=3)  # [(ts, outcome)]
-            h_counts = get_player_hourly_counts(guild.id, target.id)          # (m,a,s,n)
+            defenses = get_leaderboard_value(guild.id, "defense", target.id)
+            pings    = get_leaderboard_value(guild.id, "pingeur", target.id)
+            wins     = get_leaderboard_value(guild.id, "win", target.id)
+            losses   = get_leaderboard_value(guild.id, "loss", target.id)
         except Exception:
             await interaction.response.send_message("⚠️ Impossible de récupérer les stats (DB).", ephemeral=True)
             return
 
         ratio = f"{(wins/(wins+losses)*100):.1f}%" if (wins + losses) else "0%"
+
+        # Ces deux blocs restent basés sur les messages présents (si DB neuve -> vides/0, c'est normal)
+        try:
+            recent = get_player_recent_defenses(guild.id, target.id, limit=3)  # [(ts, outcome)]
+            h_counts = get_player_hourly_counts(guild.id, target.id)          # (m,a,s,n)
+        except Exception:
+            recent, h_counts = [], (0, 0, 0, 0)
 
         # Analyse horaires: bucket max
         if any(h_counts):
