@@ -244,6 +244,11 @@ def get_message_team(con: sqlite3.Connection, message_id: int) -> Optional[int]:
     return int(row["team"]) if row and row["team"] is not None else None
 
 @with_db
+def get_message_outcome(con: sqlite3.Connection, message_id: int) -> Optional[str]:
+    row = con.execute("SELECT outcome FROM messages WHERE message_id=?", (message_id,)).fetchone()
+    return (row["outcome"] if row and row["outcome"] is not None else None)
+
+@with_db
 def set_outcome(con: sqlite3.Connection, message_id: int, outcome: Optional[str]):
     con.execute("UPDATE messages SET outcome=?, last_ts=? WHERE message_id=?", (outcome, utcnow_i(), message_id))
 
@@ -306,6 +311,11 @@ def get_first_defender(con: sqlite3.Connection, message_id: int) -> Optional[int
     """, (message_id,)).fetchone()
     return row["user_id"] if row else None
 
+@with_db
+def get_participants_user_ids(con: sqlite3.Connection, message_id: int) -> List[int]:
+    rows = con.execute("SELECT user_id FROM participants WHERE message_id=?", (message_id,)).fetchall()
+    return [int(r["user_id"]) for r in rows]
+
 
 # ---------- Leaderboard counters ----------
 @with_db
@@ -352,6 +362,14 @@ def get_leaderboard_totals_all(con: sqlite3.Connection, guild_id: int, type_: st
         ORDER BY count DESC
     """, (guild_id, type_)).fetchall()
     return {r["user_id"]: r["count"] for r in rows}
+
+@with_db
+def get_leaderboard_value(con: sqlite3.Connection, guild_id: int, type_: str, user_id: int) -> int:
+    row = con.execute("""
+        SELECT count FROM leaderboard_totals
+        WHERE guild_id=? AND type=? AND user_id=?
+    """, (guild_id, type_, user_id)).fetchone()
+    return int(row["count"]) if row else 0
 
 
 # ---------- Leaderboard posts ----------
@@ -457,7 +475,7 @@ def seed_leaderboard_totals(con: sqlite3.Connection, guild_id: int, type_: str, 
 def clear_baseline(con: sqlite3.Connection, guild_id: int):
     """Baseline = 0 quand aucun snapshot n'est trouvé : on vide les agrégats et les totaux seedés."""
     con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
-    con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type IN ('defense','pingeur')", (guild_id,))
+    con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type IN ('defense','pingeur','win','loss')", (guild_id,))
 
 
 # ---------- Aggregates-aware readers (baseline + deltas live) ----------
@@ -514,7 +532,7 @@ def agg_totals_by_team(con: sqlite3.Connection, guild_id: int, team: int) -> Tup
 
 # Répartition horaire (baseline + live)
 @with_db
-def hourly_split_all(con: sqlite3.Connection, guild_id: int) -> tuple[int, int, int, int]:
+def hourly_split_all(con: sqlite3.Connection, guild_id: int) -> Tuple[int, int, int, int]:
     # Live
     rows = con.execute("SELECT created_ts FROM messages WHERE guild_id=?", (guild_id,)).fetchall()
     live_counts = [0, 0, 0, 0]  # morning, afternoon, evening, night
@@ -540,7 +558,31 @@ def hourly_split_all(con: sqlite3.Connection, guild_id: int) -> tuple[int, int, 
     return tuple(base_counts[i] + live_counts[i] for i in range(4))
 
 
-# ---------- Helpers suppression ----------
+# ---------- Stats helpers pour snapshot ----------
+@with_db
+def get_wins_by_user(con: sqlite3.Connection, guild_id: int) -> Dict[int, int]:
+    rows = con.execute("""
+        SELECT p.user_id AS uid, COUNT(*) AS c
+        FROM participants p
+        JOIN messages m ON m.message_id = p.message_id
+        WHERE m.guild_id=? AND m.outcome='win'
+        GROUP BY p.user_id
+    """, (guild_id,)).fetchall()
+    return {int(r["uid"]): int(r["c"]) for r in rows}
+
+@with_db
+def get_losses_by_user(con: sqlite3.Connection, guild_id: int) -> Dict[int, int]:
+    rows = con.execute("""
+        SELECT p.user_id AS uid, COUNT(*) AS c
+        FROM participants p
+        JOIN messages m ON m.message_id = p.message_id
+        WHERE m.guild_id=? AND m.outcome='loss'
+        GROUP BY p.user_id
+    """, (guild_id,)).fetchall()
+    return {int(r["uid"]): int(r["c"]) for r in rows}
+
+
+# ---------- Helpers suppression / info ----------
 @with_db
 def get_message_info(con: sqlite3.Connection, message_id: int):
     row = con.execute("SELECT guild_id, creator_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
@@ -549,17 +591,12 @@ def get_message_info(con: sqlite3.Connection, message_id: int):
     return int(row["guild_id"]), (int(row["creator_id"]) if row["creator_id"] is not None else None)
 
 @with_db
-def get_participants_user_ids(con: sqlite3.Connection, message_id: int) -> List[int]:
-    rows = con.execute("SELECT user_id FROM participants WHERE message_id=?", (message_id,)).fetchall()
-    return [int(r["user_id"]) for r in rows]
-
-@with_db
 def delete_message_and_participants(con: sqlite3.Connection, message_id: int):
     con.execute("DELETE FROM participants WHERE message_id=?", (message_id,))
     con.execute("DELETE FROM messages WHERE message_id=?", (message_id,))
 
 
-# ---------- Player stats ----------
+# ---------- Player stats (legacy, basés sur messages/participants) ----------
 @with_db
 def get_player_stats(con: sqlite3.Connection, guild_id: int, user_id: int) -> Tuple[int, int, int, int]:
     row = con.execute("""
