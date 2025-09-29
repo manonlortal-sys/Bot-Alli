@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List, Optional, Callable
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -12,6 +12,7 @@ from storage import (
     add_participant,
     get_guild_config,
     get_message_team,
+    get_teams,
 )
 from .leaderboard import update_leaderboards
 
@@ -20,13 +21,6 @@ EMOJI_VICTORY = "🏆"
 EMOJI_DEFEAT  = "❌"
 EMOJI_INCOMP  = "😡"
 EMOJI_JOIN    = "👍"
-
-TEAM_NAMES = {
-    1: "Wanted",
-    2: "Wanted 2",
-    3: "Snowflake",
-    4: "Secteur K",
-}
 
 # ---------- Embed constructeur ----------
 async def build_ping_embed(msg: discord.Message) -> discord.Embed:
@@ -46,6 +40,7 @@ async def build_ping_embed(msg: discord.Message) -> discord.Embed:
             lines.append(name)
     defenders_block = "• " + "\n• ".join(lines) if lines else "_Aucun défenseur pour le moment._"
 
+    # État via réactions
     reactions = {str(r.emoji): r for r in msg.reactions}
     win        = EMOJI_VICTORY in reactions and reactions[EMOJI_VICTORY].count > 0
     loss       = EMOJI_DEFEAT  in reactions and reactions[EMOJI_DEFEAT].count  > 0
@@ -67,13 +62,19 @@ async def build_ping_embed(msg: discord.Message) -> discord.Embed:
         if incomplete:
             etat += f"\n{EMOJI_INCOMP} Défense incomplète"
 
-    # Titre dynamique par guilde
-    team = get_message_team(msg.id)
-    team_name = TEAM_NAMES.get(team, "Percepteur")
-    title = f"🛡️ Alerte Attaque {team_name}"
+    # Titre dynamique par équipe
+    team_id = get_message_team(msg.id)
+    team_name = None
+    if team_id is not None:
+        for t in get_teams(msg.guild.id):
+            if int(t["team_id"]) == int(team_id):
+                team_name = t["name"]
+                break
+    if not team_name:
+        team_name = "Percepteur"
 
     embed = discord.Embed(
-        title=title,
+        title=f"🛡️ Alerte Attaque {team_name}",
         description="⚠️ **Connectez-vous pour prendre la défense !**",
         color=color,
     )
@@ -144,6 +145,7 @@ class AddDefendersButtonView(discord.ui.View):
 
     @discord.ui.button(label="Ajouter défenseurs", style=discord.ButtonStyle.primary, emoji="🛡️", custom_id="add_defenders")
     async def add_defenders(self, interaction: discord.Interaction, button: discord.ui.Button):
+        from storage import get_first_defender
         first_id = get_first_defender(self.message_id)
         if first_id is None or interaction.user.id != first_id:
             await interaction.response.send_message("Bouton réservé au premier défenseur (premier 👍).", ephemeral=True)
@@ -154,24 +156,26 @@ class AddDefendersButtonView(discord.ui.View):
             ephemeral=True
         )
 
-# ---------- Panneau de ping ----------
+# ---------- Panneau de ping (dynamique) ----------
 class PingButtonsView(discord.ui.View):
+    """Vue persistante vide (compat). Le vrai panneau est construit à l'appel de la commande."""
     def __init__(self, bot: commands.Bot):
         super().__init__(timeout=None)
         self.bot = bot
 
-    async def _handle_click(self, interaction: discord.Interaction, role_id: int, team: int):
+def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
+    """Construit une View avec un bouton par équipe déclarée dans team_config + bouton TEST (si admin)."""
+    view = discord.ui.View(timeout=None)
+    cfg = get_guild_config(guild.id)
+    teams = get_teams(guild.id)
+
+    async def handle_click(interaction: discord.Interaction, role_id: int, team_id: int):
         try:
             await interaction.response.defer(ephemeral=True, thinking=False)
         except Exception:
             pass
 
-        guild = interaction.guild
-        cfg = get_guild_config(guild.id)
-        if not cfg:
-            return
-
-        alert_channel = guild.get_channel(cfg["alert_channel_id"])
+        alert_channel = guild.get_channel(cfg["alert_channel_id"]) if cfg else None
         if alert_channel is None:
             return
 
@@ -185,49 +189,50 @@ class PingButtonsView(discord.ui.View):
             msg.channel.id,
             int(msg.created_at.timestamp()),
             creator_id=interaction.user.id,
-            team=team,
+            team=team_id,
         )
         incr_leaderboard(guild.id, "pingeur", interaction.user.id)
 
         emb = await build_ping_embed(msg)
-        # le bouton “Ajouter défenseurs” n'apparaît qu'après le premier 👍 (géré par reactions)
         await msg.edit(embed=emb)
-        await update_leaderboards(self.bot, guild)
+        await update_leaderboards(bot, guild)
 
         try:
             await interaction.followup.send("✅ Alerte envoyée.", ephemeral=True)
         except Exception:
             pass
 
-    # === BOUTONS MIS À JOUR (rouges + 🔔 + MAJUSCULE, WANTED 1) ===
-    @discord.ui.button(label="WANTED 1", style=discord.ButtonStyle.danger, emoji="🔔", custom_id="pingpanel:g1")
-    async def btn_g1(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cfg = get_guild_config(interaction.guild.id)
-        await self._handle_click(interaction, cfg["role_g1_id"], team=1)
+    # Créer un bouton par équipe
+    for t in teams:
+        btn = discord.ui.Button(
+            label=str(t["label"])[:80],
+            style=discord.ButtonStyle.danger,
+            emoji="🔔",
+            custom_id=f"pingpanel:team:{t['team_id']}",
+        )
 
-    @discord.ui.button(label="WANTED 2", style=discord.ButtonStyle.danger, emoji="🔔", custom_id="pingpanel:g2")
-    async def btn_g2(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cfg = get_guild_config(interaction.guild.id)
-        await self._handle_click(interaction, cfg["role_g2_id"], team=2)
+        async def on_click(interaction: discord.Interaction, role_id=int(t["role_id"]), team_id=int(t["team_id"])):
+            await handle_click(interaction, role_id, team_id)
 
-    @discord.ui.button(label="SNOWFLAKE", style=discord.ButtonStyle.danger, emoji="🔔", custom_id="pingpanel:g3")
-    async def btn_g3(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cfg = get_guild_config(interaction.guild.id)
-        await self._handle_click(interaction, cfg["role_g3_id"], team=3)
+        btn.callback = on_click  # type: ignore
+        view.add_item(btn)
 
-    @discord.ui.button(label="SECTEUR K", style=discord.ButtonStyle.danger, emoji="🔔", custom_id="pingpanel:g4")
-    async def btn_g4(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cfg = get_guild_config(interaction.guild.id)
-        await self._handle_click(interaction, cfg["role_g4_id"], team=4)
+    # Bouton TEST (gris), réservé aux admins
+    if cfg and cfg.get("role_test_id"):
+        test_btn = discord.ui.Button(
+            label="TEST (Admin)", style=discord.ButtonStyle.secondary, custom_id="pingpanel:test"
+        )
 
-    # TEST reste gris
-    @discord.ui.button(label="TEST (Admin)", style=discord.ButtonStyle.secondary, custom_id="pingpanel:test")
-    async def btn_test(self, interaction: discord.Interaction, button: discord.ui.Button):
-        cfg = get_guild_config(interaction.guild.id)
-        if cfg["admin_role_id"] and not any(r.id == cfg["admin_role_id"] for r in interaction.user.roles):
-            await interaction.response.send_message("Bouton réservé aux admins.", ephemeral=True)
-            return
-        await self._handle_click(interaction, cfg["role_test_id"], team=0)
+        async def on_test(interaction: discord.Interaction):
+            if cfg["admin_role_id"] and not any(r.id == cfg["admin_role_id"] for r in interaction.user.roles):
+                await interaction.response.send_message("Bouton réservé aux admins.", ephemeral=True)
+                return
+            await handle_click(interaction, cfg["role_test_id"], team_id=0)
+
+        test_btn.callback = on_test  # type: ignore
+        view.add_item(test_btn)
+
+    return view
 
 class AlertsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -235,13 +240,18 @@ class AlertsCog(commands.Cog):
 
     @app_commands.command(name="pingpanel", description="Publier le panneau d’alerte percepteur")
     async def pingpanel(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if guild is None:
+            await interaction.response.send_message("Commande à utiliser sur un serveur.", ephemeral=True)
+            return
+
         title = "⚔️ Ping défenses percepteurs ⚔️"
         desc = (
             "**📢 Clique sur le bouton de la guilde qui se fait attaquer pour générer automatiquement un ping dans le canal défense.**\n\n"
             "*⚠️ Le bouton **TEST** n’est accessible qu’aux administrateurs pour la gestion du bot.*"
         )
         embed = discord.Embed(title=title, description=desc, color=discord.Color.blurple())
-        await interaction.response.send_message(embed=embed, view=PingButtonsView(self.bot), ephemeral=False)
+        await interaction.response.send_message(embed=embed, view=make_ping_view(self.bot, guild), ephemeral=False)
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AlertsCog(bot))
