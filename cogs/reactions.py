@@ -139,13 +139,13 @@ class ReactionsCog(commands.Cog):
 
         await update_leaderboards(self.bot, guild)
 
-    @commands.Cog.listener())
+    @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
         if payload.user_id == self.bot.user.id:
             return
         await self._handle_reaction_event(payload, is_add=True)
 
-    @commands.Cog.listener())
+    @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
         if payload.user_id == self.bot.user.id:
             return
