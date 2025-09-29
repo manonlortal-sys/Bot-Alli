@@ -6,8 +6,10 @@ from zoneinfo import ZoneInfo
 
 DB_PATH = "defense_leaderboard.db"
 
+
 def utcnow_i() -> int:
     return int(time.time())
+
 
 # ---------- Decorator ----------
 def with_db(func):
@@ -22,10 +24,12 @@ def with_db(func):
             con.close()
     return wrapper
 
+
 # ---------- Create / migrate DB ----------
 def _column_exists(con: sqlite3.Connection, table: str, column: str) -> bool:
     cur = con.execute(f"PRAGMA table_info({table})")
     return any(row[1] == column for row in cur.fetchall())
+
 
 def create_db():
     con = sqlite3.connect(DB_PATH)
@@ -87,7 +91,6 @@ def create_db():
         )
     """)
 
-    # ---------- config multi-équipes (4 guildes) ----------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS guild_config(
             guild_id INTEGER PRIMARY KEY,
@@ -103,24 +106,32 @@ def create_db():
         )
     """)
 
-    # migrations légères
+    # Table pour config des teams dynamiques (aucune limite de nombre)
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS team_config(
+            guild_id    INTEGER NOT NULL,
+            team_id     INTEGER NOT NULL,
+            name        TEXT NOT NULL,
+            role_id     INTEGER NOT NULL,
+            label       TEXT NOT NULL,
+            order_index INTEGER NOT NULL,
+            PRIMARY KEY (guild_id, team_id)
+        )
+    """)
+
+    # Migrations légères
     try:
         if not _column_exists(con, "messages", "team"):
             cur.execute("ALTER TABLE messages ADD COLUMN team INTEGER")
         if not _column_exists(con, "messages", "attack_incomplete"):
             cur.execute("ALTER TABLE messages ADD COLUMN attack_incomplete INTEGER DEFAULT 0")
-
-        # nouvelles colonnes config si besoin
-        for col in ["role_g1_id","role_g2_id","role_g3_id","role_g4_id","role_test_id","admin_role_id",
-                    "alert_channel_id","leaderboard_channel_id","snapshot_channel_id"]:
-            if not _column_exists(con, "guild_config", col):
-                cur.execute(f"ALTER TABLE guild_config ADD COLUMN {col} INTEGER")
-        con.commit()
+        # autres tables créées via IF NOT EXISTS
     except Exception:
         pass
 
     con.commit()
     con.close()
+
 
 # ---------- Guild config ----------
 @with_db
@@ -159,6 +170,44 @@ def upsert_guild_config(
 def get_guild_config(con: sqlite3.Connection, guild_id: int) -> Optional[dict]:
     row = con.execute("SELECT * FROM guild_config WHERE guild_id=?", (guild_id,)).fetchone()
     return dict(row) if row else None
+
+
+# ---------- Teams dynamiques ----------
+@with_db
+def upsert_team(
+    con: sqlite3.Connection,
+    guild_id: int,
+    team_id: int,
+    name: str,
+    role_id: int,
+    label: str,
+    order_index: int
+):
+    """
+    Créer/mettre à jour une équipe (visible dans le PingPanel & stats).
+    Exemple d’usage :
+      upsert_team(guild_id, 5, "La bande", 1421927584802934915, "LA BANDE", 5)
+    """
+    con.execute("""
+        INSERT INTO team_config(guild_id, team_id, name, role_id, label, order_index)
+        VALUES (?,?,?,?,?,?)
+        ON CONFLICT(guild_id, team_id) DO UPDATE SET
+            name=excluded.name,
+            role_id=excluded.role_id,
+            label=excluded.label,
+            order_index=excluded.order_index
+    """, (guild_id, team_id, name, role_id, label, order_index))
+
+@with_db
+def get_teams(con: sqlite3.Connection, guild_id: int) -> List[dict]:
+    rows = con.execute("""
+        SELECT team_id, name, role_id, label, order_index
+        FROM team_config
+        WHERE guild_id=?
+        ORDER BY order_index ASC
+    """, (guild_id,)).fetchall()
+    return [dict(r) for r in rows]
+
 
 # ---------- Messages ----------
 @with_db
@@ -201,6 +250,7 @@ def set_outcome(con: sqlite3.Connection, message_id: int, outcome: Optional[str]
 @with_db
 def set_incomplete(con: sqlite3.Connection, message_id: int, incomplete: bool):
     con.execute("UPDATE messages SET incomplete=?, last_ts=? WHERE message_id=?", (1 if incomplete else 0, utcnow_i(), message_id))
+
 
 # ---------- Participants ----------
 @with_db
@@ -256,6 +306,7 @@ def get_first_defender(con: sqlite3.Connection, message_id: int) -> Optional[int
     """, (message_id,)).fetchone()
     return row["user_id"] if row else None
 
+
 # ---------- Leaderboard counters ----------
 @with_db
 def incr_leaderboard(con: sqlite3.Connection, guild_id: int, type_: str, user_id: int):
@@ -302,6 +353,7 @@ def get_leaderboard_totals_all(con: sqlite3.Connection, guild_id: int, type_: st
     """, (guild_id, type_)).fetchall()
     return {r["user_id"]: r["count"] for r in rows}
 
+
 # ---------- Leaderboard posts ----------
 @with_db
 def get_leaderboard_post(con: sqlite3.Connection, guild_id: int, type_: str):
@@ -321,7 +373,8 @@ def set_leaderboard_post(con: sqlite3.Connection, guild_id: int, channel_id: int
         SET channel_id=excluded.channel_id, message_id=excluded.message_id
     """, (guild_id, channel_id, message_id, type_))
 
-# ---------- Aggregates (snapshots) ----------
+
+# ---------- Aggregates (baseline & snapshots) ----------
 @with_db
 def set_aggregate(con: sqlite3.Connection, guild_id: int, scope: str, key: str, value: int):
     con.execute("""
@@ -339,6 +392,34 @@ def get_aggregate(con: sqlite3.Connection, guild_id: int, scope: str, key: str) 
     return int(row["value"]) if row else 0
 
 @with_db
+def seed_aggregates_dynamic(
+    con: sqlite3.Connection,
+    guild_id: int,
+    global_tot: Dict[str, int],
+    team_totals: Dict[int, Dict[str, int]],
+    hourly: Dict[str, int],
+):
+    """
+    Remplace entièrement la baseline snapshot pour la guilde (version dynamique).
+    Scopes :
+      - global
+      - team:{team_id}  (ex: team:1, team:5, ...)
+      - hourly
+    """
+    con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
+    # Global
+    for key in ("attacks", "wins", "losses", "incomplete"):
+        set_aggregate(guild_id, "global", key, int(global_tot.get(key, 0)))
+    # Teams (team:{id})
+    for team_id, vals in (team_totals or {}).items():
+        scope = f"team:{int(team_id)}"
+        for key, val in (vals or {}).items():
+            set_aggregate(guild_id, scope, key, int(val))
+    # Hourly
+    for key in ("morning", "afternoon", "evening", "night"):
+        set_aggregate(guild_id, "hourly", key, int((hourly or {}).get(key, 0)))
+
+@with_db
 def seed_aggregates(
     con: sqlite3.Connection,
     guild_id: int,
@@ -349,28 +430,24 @@ def seed_aggregates(
     team3: Optional[dict] = None,
     team4: Optional[dict] = None,
 ):
-    # Remplacer complètement la baseline pour la guilde
-    con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
-    # Global
-    for key, val in (global_tot or {}).items():
-        set_aggregate(guild_id, "global", key, int(val))
-    # Teams 1..4
-    for scope, data in (
-        ("team1", team1 or {}),
-        ("team2", team2 or {}),
-        ("team3", team3 or {}),
-        ("team4", team4 or {}),
-    ):
-        for key, val in data.items():
-            set_aggregate(guild_id, scope, key, int(val))
-    # Hourly
-    for key, val in (hourly or {}).items():
-        set_aggregate(guild_id, "hourly", key, int(val))
+    """
+    Compat: ancienne signature (teams 1..4). On mappe vers la version dynamique.
+    """
+    team_totals = {}
+    if team1 is not None:
+        team_totals[1] = {k: int(v) for k, v in team1.items()}
+    if team2 is not None:
+        team_totals[2] = {k: int(v) for k, v in team2.items()}
+    if team3 is not None:
+        team_totals[3] = {k: int(v) for k, v in team3.items()}
+    if team4 is not None:
+        team_totals[4] = {k: int(v) for k, v in team4.items()}
+    seed_aggregates_dynamic(guild_id, global_tot or {}, team_totals, hourly or {})
 
 @with_db
 def seed_leaderboard_totals(con: sqlite3.Connection, guild_id: int, type_: str, totals: Dict[int, int]):
     con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type=?", (guild_id, type_))
-    for uid, cnt in totals.items():
+    for uid, cnt in (totals or {}).items():
         con.execute("""
             INSERT INTO leaderboard_totals(guild_id, type, user_id, count)
             VALUES (?,?,?,?)
@@ -381,6 +458,7 @@ def clear_baseline(con: sqlite3.Connection, guild_id: int):
     """Baseline = 0 quand aucun snapshot n'est trouvé : on vide les agrégats et les totaux seedés."""
     con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
     con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type IN ('defense','pingeur')", (guild_id,))
+
 
 # ---------- Aggregates-aware readers (baseline + deltas live) ----------
 @with_db
@@ -400,7 +478,7 @@ def agg_totals_all(con: sqlite3.Connection, guild_id: int) -> Tuple[int, int, in
     inc_live = int(row["inc"] or 0)
     att_live = int(row["tot"] or 0)
 
-    # Baseline snapshot
+    # Baseline (snapshot)
     w_base  = get_aggregate(guild_id, "global", "wins")
     l_base  = get_aggregate(guild_id, "global", "losses")
     inc_base = get_aggregate(guild_id, "global", "incomplete")
@@ -425,8 +503,8 @@ def agg_totals_by_team(con: sqlite3.Connection, guild_id: int, team: int) -> Tup
     inc_live = int(row["inc"] or 0)
     att_live = int(row["tot"] or 0)
 
-    # Baseline snapshot pour la team 1..4
-    scope = f"team{team}" if team in (1, 2, 3, 4) else "team1"
+    # Baseline (snapshot) pour team:{id}
+    scope = f"team:{int(team)}"
     w_base  = get_aggregate(guild_id, scope, "wins")
     l_base  = get_aggregate(guild_id, scope, "losses")
     inc_base = get_aggregate(guild_id, scope, "incomplete")
@@ -434,7 +512,7 @@ def agg_totals_by_team(con: sqlite3.Connection, guild_id: int, team: int) -> Tup
 
     return (w_base + w_live, l_base + l_live, inc_base + inc_live, att_base + att_live)
 
-# ---------- Répartition horaire (baseline + live) ----------
+# Répartition horaire (baseline + live)
 @with_db
 def hourly_split_all(con: sqlite3.Connection, guild_id: int) -> tuple[int, int, int, int]:
     # Live
@@ -461,6 +539,7 @@ def hourly_split_all(con: sqlite3.Connection, guild_id: int) -> tuple[int, int, 
     ]
     return tuple(base_counts[i] + live_counts[i] for i in range(4))
 
+
 # ---------- Helpers suppression ----------
 @with_db
 def get_message_info(con: sqlite3.Connection, message_id: int):
@@ -478,6 +557,7 @@ def get_participants_user_ids(con: sqlite3.Connection, message_id: int) -> List[
 def delete_message_and_participants(con: sqlite3.Connection, message_id: int):
     con.execute("DELETE FROM participants WHERE message_id=?", (message_id,))
     con.execute("DELETE FROM messages WHERE message_id=?", (message_id,))
+
 
 # ---------- Player stats ----------
 @with_db
