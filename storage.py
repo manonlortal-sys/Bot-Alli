@@ -393,13 +393,18 @@ def set_leaderboard_post(con: sqlite3.Connection, guild_id: int, channel_id: int
 
 
 # ---------- Aggregates (baseline & snapshots) ----------
-@with_db
-def set_aggregate(con: sqlite3.Connection, guild_id: int, scope: str, key: str, value: int):
+def _set_aggregate_txn(con: sqlite3.Connection, guild_id: int, scope: str, key: str, value: int):
+    """Helper interne: écrit avec la connexion existante (évite les verrous SQLite)."""
     con.execute("""
         INSERT INTO aggregates(guild_id, scope, key, value)
         VALUES (?,?,?,?)
         ON CONFLICT(guild_id, scope, key) DO UPDATE SET value=excluded.value
     """, (guild_id, scope, key, value))
+
+@with_db
+def set_aggregate(con: sqlite3.Connection, guild_id: int, scope: str, key: str, value: int):
+    # Version publique qui ouvre sa propre connexion
+    _set_aggregate_txn(con, guild_id, scope, key, value)
 
 @with_db
 def get_aggregate(con: sqlite3.Connection, guild_id: int, scope: str, key: str) -> int:
@@ -423,19 +428,21 @@ def seed_aggregates_dynamic(
       - global
       - team:{team_id}  (ex: team:1, team:5, ...)
       - hourly
+    NOTE: utilise la même connexion 'con' pour toutes les écritures (évite database locked).
     """
+    # purge baseline
     con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
     # Global
     for key in ("attacks", "wins", "losses", "incomplete"):
-        set_aggregate(guild_id, "global", key, int(global_tot.get(key, 0)))
+        _set_aggregate_txn(con, guild_id, "global", key, int((global_tot or {}).get(key, 0)))
     # Teams (team:{id})
     for team_id, vals in (team_totals or {}).items():
         scope = f"team:{int(team_id)}"
         for key, val in (vals or {}).items():
-            set_aggregate(guild_id, scope, key, int(val))
+            _set_aggregate_txn(con, guild_id, scope, key, int(val))
     # Hourly
     for key in ("morning", "afternoon", "evening", "night"):
-        set_aggregate(guild_id, "hourly", key, int((hourly or {}).get(key, 0)))
+        _set_aggregate_txn(con, guild_id, "hourly", key, int((hourly or {}).get(key, 0)))
 
 @with_db
 def seed_aggregates(
