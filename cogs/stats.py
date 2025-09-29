@@ -1,5 +1,5 @@
 # cogs/stats.py
-from typing import Optional, List, Tuple
+from typing import Optional, List
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
