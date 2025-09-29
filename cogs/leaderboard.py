@@ -8,6 +8,7 @@ from storage import (
     agg_totals_all,
     agg_totals_by_team,
     get_guild_config,
+    get_teams,
 )
 
 def medals_top_defenders(top: list[tuple[int, int]]) -> str:
@@ -62,10 +63,6 @@ async def update_leaderboards(bot: commands.Bot, guild: discord.Guild):
     top_block = medals_top_defenders(top_def)
 
     w_all, l_all, inc_all, att_all = agg_totals_all(guild.id)
-    w_g1, l_g1, inc_g1, att_g1 = agg_totals_by_team(guild.id, 1)
-    w_g2, l_g2, inc_g2, att_g2 = agg_totals_by_team(guild.id, 2)
-    w_g3, l_g3, inc_g3, att_g3 = agg_totals_by_team(guild.id, 3)
-    w_g4, l_g4, inc_g4, att_g4 = agg_totals_by_team(guild.id, 4)
 
     embed_def = discord.Embed(title="📊 Leaderboard Défense", color=discord.Color.blue())
     embed_def.add_field(name="**🏆 Top défenseurs**", value=top_block, inline=False)
@@ -78,13 +75,14 @@ async def update_leaderboards(bot: commands.Bot, guild: discord.Guild):
     name, value = separator_field()
     embed_def.add_field(name=name, value=value, inline=False)
 
-    # 4 guildes : 2 colonnes x 2 lignes
-    embed_def.add_field(name="**📌 Wanted**",   value=fmt_stats_block(att_g1, w_g1, l_g1, inc_g1), inline=True)
-    embed_def.add_field(name="**📌 Wanted 2**", value=fmt_stats_block(att_g2, w_g2, l_g2, inc_g2), inline=True)
-    embed_def.add_field(name="**📌 Snowflake**", value=fmt_stats_block(att_g3, w_g3, l_g3, inc_g3), inline=True)
-    embed_def.add_field(name="**📌 Secteur K**", value=fmt_stats_block(att_g4, w_g4, l_g4, inc_g4), inline=True)
+    # Stats par équipe dynamiques (ordre = order_index de team_config)
+    teams = get_teams(guild.id)
+    for t in teams:
+        tid = int(t["team_id"])
+        w, l, inc, att = agg_totals_by_team(guild.id, tid)
+        embed_def.add_field(name=f"**📌 {t['name']}**", value=fmt_stats_block(att, w, l, inc), inline=True)
 
-    # Forcer un saut propre après les colonnes
+    # ligne blanche pour forcer le saut si nombre impair
     embed_def.add_field(name="\u200b", value="\u200b", inline=False)
 
     await msg_def.edit(embed=embed_def)
