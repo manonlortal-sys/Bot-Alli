@@ -1,10 +1,9 @@
 # cogs/verify.py
 from __future__ import annotations
-from typing import List, Optional, Dict, Tuple
+from typing import List, Optional, Dict, Tuple, Set
 
 import discord
 from discord.ext import commands
-from discord import app_commands
 
 from storage import get_teams
 
@@ -61,6 +60,9 @@ def roles_to_names(guild: discord.Guild, role_ids: List[int]) -> List[str]:
         if r:
             out.append(r.name)
     return out
+
+def is_direction(member: discord.Member) -> bool:
+    return any(r.id == DIRECTION_ROLE_ID for r in member.roles)
 
 # ==== UI: Sélecteur de guilde + bouton d'envoi ====
 class GuildSelect(discord.ui.Select):
@@ -136,7 +138,6 @@ class PseudoModal(discord.ui.Modal, title="📝 Pseudo en jeu"):
             await interaction.response.send_message("Canal de validation introuvable.", ephemeral=True)
             return
 
-        # Embed de demande pour Direction
         embed = discord.Embed(
             title="📝 Nouvelle demande de validation",
             description=(
@@ -211,38 +212,30 @@ class WelcomeView(discord.ui.View):
 
 # ==== UI: Validation par Direction ====
 class ValidationButtons(discord.ui.View):
-    # Timeout étendu (24h) pour laisser le temps à la direction
+    # Timeout 24h
     def __init__(self, target_user_id: int, chosen_label: str, chosen_role_id: int):
         super().__init__(timeout=86400)
         self.target_user_id = target_user_id
         self.chosen_label = chosen_label
         self.chosen_role_id = chosen_role_id
 
-    def _is_direction(self, user: discord.Member) -> bool:
-        return any(r.id == DIRECTION_ROLE_ID for r in user.roles)
-
     async def _get_target_member(self, guild: discord.Guild) -> Optional[discord.Member]:
         return guild.get_member(self.target_user_id) or await guild.fetch_member(self.target_user_id)
 
     @discord.ui.button(label="Valider", style=discord.ButtonStyle.success, emoji="✅")
     async def approve(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.guild is None:
-            return
-        if not isinstance(interaction.user, discord.Member) or not self._is_direction(interaction.user):
+        if interaction.guild is None or not isinstance(interaction.user, discord.Member) or not is_direction(interaction.user):
             await interaction.response.send_message("Action réservée à la **Direction**.", ephemeral=True)
             return
 
         member = await self._get_target_member(interaction.guild)
         if member is None:
-            # Supprime le message (archivage silencieux) puis notifie
-            try:
-                await interaction.message.delete()
-            except Exception:
-                pass
+            try: await interaction.message.delete()
+            except Exception: pass
             await interaction.response.send_message("⚠️ Membre introuvable (a peut-être quitté). Demande supprimée.", ephemeral=True)
             return
 
-        # Rôles à attribuer : guilde choisie + pairs + membre
+        # Rôles base = guilde choisie + pair éventuel + Membre
         base_role_ids: List[int] = [self.chosen_role_id]
         base_role_ids += compute_pair_roles(self.chosen_label, self.chosen_role_id, interaction.guild)
         if MEMBER_ROLE_ID not in base_role_ids:
@@ -258,14 +251,12 @@ class ValidationButtons(discord.ui.View):
                 except Exception:
                     pass
 
-        # Supprime le message de validation immédiatement (comme demandé)
-        try:
-            await interaction.message.delete()
-        except Exception:
-            pass
+        # Supprime le message de validation (salon propre)
+        try: await interaction.message.delete()
+        except Exception: pass
 
-        # Proposer le choix: Rôle supplémentaire OU Clôturer (éphémère pour le validateur)
-        base_roles_display = ", ".join(applied_names) if applied_names else "—"
+        base_roles_display = ", ".join(applied_names) if applied_names else ", ".join(roles_to_names(interaction.guild, base_role_ids)) or "—"
+
         await interaction.response.send_message(
             content=(
                 f"✅ Validation effectuée pour {member.mention}\n"
@@ -282,20 +273,14 @@ class ValidationButtons(discord.ui.View):
 
     @discord.ui.button(label="Refuser", style=discord.ButtonStyle.danger, emoji="❌")
     async def reject(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.guild is None:
-            return
-        if not isinstance(interaction.user, discord.Member) or not self._is_direction(interaction.user):
+        if interaction.guild is None or not isinstance(interaction.user, discord.Member) or not is_direction(interaction.user):
             await interaction.response.send_message("Action réservée à la **Direction**.", ephemeral=True)
             return
-
-        # Supprime le message et confirme
-        try:
-            await interaction.message.delete()
-        except Exception:
-            pass
+        try: await interaction.message.delete()
+        except Exception: pass
         await interaction.response.send_message("❌ Demande refusée. Message supprimé.", ephemeral=True)
 
-# ==== UI: Choix après validation (supplémentaires / clôturer) ====
+# ==== Étape 2 : Choix après validation (extras / clôturer) ====
 class PostValidationChoiceView(discord.ui.View):
     def __init__(self, target_member_id: int, guild: discord.Guild, base_role_ids: List[int]):
         super().__init__(timeout=3600)
@@ -303,25 +288,21 @@ class PostValidationChoiceView(discord.ui.View):
         self.guild = guild
         self.base_role_ids = base_role_ids
 
-    def _is_direction(self, user: discord.Member) -> bool:
-        return any(r.id == DIRECTION_ROLE_ID for r in user.roles)
-
     @discord.ui.button(label="➕ Ajouter rôles supplémentaires", style=discord.ButtonStyle.primary)
     async def extras(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not isinstance(interaction.user, discord.Member) or not self._is_direction(interaction.user):
+        if not isinstance(interaction.user, discord.Member) or not is_direction(interaction.user):
             await interaction.response.send_message("Action réservée à la **Direction**.", ephemeral=True)
             return
         await interaction.response.edit_message(
-            content="Sélectionne des **rôles supplémentaires** à ajouter (optionnel), puis clique sur **Ajouter** ou **📋 Récapitulatif**.",
+            content="Sélectionne des **rôles supplémentaires** à ajouter (optionnel), puis clique sur **Ajouter** ou **Valider et clôturer**.",
             view=ExtraRolesFlowView(target_member_id=self.target_member_id, guild=self.guild, base_role_ids=self.base_role_ids),
         )
 
-    @discord.ui.button(label="✅ Clôturer", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="✅ Valider et clôturer", style=discord.ButtonStyle.success)
     async def close(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not isinstance(interaction.user, discord.Member) or not self._is_direction(interaction.user):
+        if not isinstance(interaction.user, discord.Member) or not is_direction(interaction.user):
             await interaction.response.send_message("Action réservée à la **Direction**.", ephemeral=True)
             return
-        # Récap final avec uniquement les rôles de base
         base_names = roles_to_names(self.guild, self.base_role_ids)
         await interaction.response.edit_message(
             content=(
@@ -331,7 +312,7 @@ class PostValidationChoiceView(discord.ui.View):
             view=None,
         )
 
-# ==== UI: Ajout + Récapitulatif ====
+# ==== Étapes 3 & 4 : Ajout + Récapitulatif ====
 class ExtraRolesSelect(discord.ui.Select):
     def __init__(self, guild: discord.Guild):
         options: List[discord.SelectOption] = []
@@ -361,18 +342,20 @@ class ExtraRolesFlowView(discord.ui.View):
 
     @discord.ui.button(label="➕ Ajouter", style=discord.ButtonStyle.primary, emoji="➕")
     async def add_selected(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not isinstance(interaction.user, discord.Member) or not any(r.id == DIRECTION_ROLE_ID for r in interaction.user.roles):
+        if not isinstance(interaction.user, discord.Member) or not is_direction(interaction.user):
             await interaction.response.send_message("Action réservée à la **Direction**.", ephemeral=True)
             return
 
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
         member = self.guild.get_member(self.target_member_id) or await self.guild.fetch_member(self.target_member_id)
         if member is None:
-            await interaction.response.send_message("⚠️ Membre introuvable.", ephemeral=True)
+            await interaction.followup.send("⚠️ Membre introuvable.", ephemeral=True)
             return
 
         chosen_ids = self.roles_select.selected_ids()
         if not chosen_ids:
-            await interaction.response.send_message("Sélectionne au moins **un rôle** avant d’ajouter, ou utilise **📋 Récapitulatif**.", ephemeral=True)
+            await interaction.followup.send("Sélectionne au moins **un rôle** avant d’ajouter, ou **valider et clôturer**.", ephemeral=True)
             return
 
         applied: List[str] = []
@@ -385,15 +368,18 @@ class ExtraRolesFlowView(discord.ui.View):
                 except Exception:
                     pass
 
-        # Confirme, laisse la vue ouverte pour pouvoir encore ajouter ou passer au récap
-        txt = f"✅ Rôles ajoutés : **{', '.join(applied)}**" if applied else "ℹ️ Aucun rôle ajouté."
-        try:
-            if interaction.response.is_done():
-                await interaction.followup.send(txt, ephemeral=True)
-            else:
-                await interaction.response.send_message(txt, ephemeral=True)
-        except Exception:
-            pass
+        # Récap automatique après ajout
+        extra_names = [r.name for r in member.roles if r.id in EXTRA_ROLE_IDS]
+        base_names = roles_to_names(self.guild, self.base_role_ids)
+        await interaction.followup.edit_message(
+            message_id=interaction.message.id,
+            content=(
+                f"📋 **Récapitulatif — {member.mention}**\n"
+                f"🏷️ Rôles de base : **{', '.join(base_names) if base_names else '—'}**\n"
+                f"➕ Rôles supplémentaires : **{', '.join(extra_names) if extra_names else '—'}**"
+            ),
+            view=FinalConfirmView(target_member_id=self.target_member_id, guild=self.guild, base_role_ids=self.base_role_ids),
+        )
 
     @discord.ui.button(label="📋 Récapitulatif", style=discord.ButtonStyle.secondary)
     async def show_recap(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -408,13 +394,166 @@ class ExtraRolesFlowView(discord.ui.View):
         await interaction.response.edit_message(
             content=(
                 f"📋 **Récapitulatif — {member.mention}**\n"
-                f"🏷️ Guilde(s) / base : **{', '.join(base_names) if base_names else '—'}**\n"
-                f"🪪 Statut : **Membre**\n"
-                f"➕ Rôles suppl. : **{', '.join(extra_names) if extra_names else '—'}**"
+                f"🏷️ Rôles de base : **{', '.join(base_names) if base_names else '—'}**\n"
+                f"➕ Rôles supplémentaires : **{', '.join(extra_names) if extra_names else '—'}**"
             ),
             view=FinalConfirmView(target_member_id=self.target_member_id, guild=self.guild, base_role_ids=self.base_role_ids),
         )
 
+# ==== Étape 4bis : Modifier TOUS les rôles (guilde + extras) ====
+class ModifyGuildSelect(discord.ui.Select):
+    def __init__(self, guild: discord.Guild, current_base: List[int]):
+        options_src = build_guild_options(guild)
+        options = [discord.SelectOption(label=label, value=str(role_id)) for (label, role_id) in options_src]
+        super().__init__(placeholder="🔽 Choisis la guilde…", min_values=1, max_values=1, options=options)
+        self._map = {str(rid): label for (label, rid) in options_src}
+        # Pré-sélectionner si possible
+        for rid_str, label in self._map.items():
+            if int(rid_str) in current_base:
+                for opt in self.options:
+                    if opt.value == rid_str:
+                        opt.default = True
+                        break
+                break
+
+    def chosen(self) -> Optional[Tuple[str, int]]:
+        if not self.values: return None
+        rid_str = self.values[0]
+        label = self._map.get(rid_str)
+        return (label, int(rid_str)) if label is not None else None
+
+class ModifyExtrasSelect(discord.ui.Select):
+    def __init__(self, guild: discord.Guild, current_member: discord.Member):
+        options: List[discord.SelectOption] = []
+        current_ids: Set[int] = {r.id for r in current_member.roles}
+        for rid in EXTRA_ROLE_IDS:
+            role = guild.get_role(rid)
+            if role:
+                options.append(discord.SelectOption(
+                    label=role.name, value=str(role.id), default=(role.id in current_ids)
+                ))
+        super().__init__(
+            placeholder="Rôles supplémentaires… (optionnel)",
+            min_values=0,
+            max_values=len(options) if options else 1,
+            options=options or [discord.SelectOption(label="Aucun rôle dispo", value="none", default=True)],
+        )
+
+    def selected_ids(self) -> List[int]:
+        return [int(v) for v in self.values if v.isdigit()]
+
+class ModifyAllRolesView(discord.ui.View):
+    def __init__(self, target_member_id: int, guild: discord.Guild, base_role_ids: List[int]):
+        super().__init__(timeout=3600)
+        self.target_member_id = target_member_id
+        self.guild = guild
+        self.base_role_ids = base_role_ids
+        member = guild.get_member(target_member_id)
+
+        self.guild_select = ModifyGuildSelect(guild, base_role_ids)
+        self.add_item(self.guild_select)
+
+        if member:
+            self.extras_select = ModifyExtrasSelect(guild, member)
+        else:
+            self.extras_select = ModifyExtrasSelect(guild, guild.me)  # fallback visuel
+        self.add_item(self.extras_select)
+
+    @discord.ui.button(label="💾 Enregistrer", style=discord.ButtonStyle.primary)
+    async def save(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not isinstance(interaction.user, discord.Member) or not is_direction(interaction.user):
+            await interaction.response.send_message("Action réservée à la **Direction**.", ephemeral=True)
+            return
+
+        await interaction.response.defer(ephemeral=True, thinking=True)
+
+        member = self.guild.get_member(self.target_member_id) or await self.guild.fetch_member(self.target_member_id)
+        if member is None:
+            await interaction.followup.send("⚠️ Membre introuvable.", ephemeral=True)
+            return
+
+        chosen = self.guild_select.chosen()
+        if not chosen:
+            await interaction.followup.send("Sélectionne une **guilde**.", ephemeral=True)
+            return
+
+        chosen_label, chosen_role_id = chosen
+        # Recalcule la base (guilde + pair + membre)
+        new_base: List[int] = [chosen_role_id]
+        new_base += compute_pair_roles(chosen_label, chosen_role_id, self.guild)
+        if MEMBER_ROLE_ID not in new_base:
+            new_base.append(MEMBER_ROLE_ID)
+
+        # Synchroniser base
+        current_ids: Set[int] = {r.id for r in member.roles}
+        to_add = [rid for rid in new_base if rid not in current_ids]
+        to_remove = [rid for rid in self.base_role_ids if rid not in new_base]
+
+        for rid in to_add:
+            role = self.guild.get_role(rid)
+            if role:
+                try: await member.add_roles(role, reason="Modification guilde (validation)")
+                except Exception: pass
+
+        for rid in to_remove:
+            role = self.guild.get_role(rid)
+            if role:
+                try: await member.remove_roles(role, reason="Modification guilde (validation)")
+                except Exception: pass
+
+        # Synchroniser extras (whitelist)
+        chosen_extras = set(self.extras_select.selected_ids())
+        current_extras = {r.id for r in member.roles if r.id in EXTRA_ROLE_IDS}
+        extras_to_add = chosen_extras - current_extras
+        extras_to_remove = current_extras - chosen_extras
+
+        for rid in extras_to_add:
+            role = self.guild.get_role(rid)
+            if role:
+                try: await member.add_roles(role, reason="Rôles supplémentaires (modification)")
+                except Exception: pass
+
+        for rid in extras_to_remove:
+            role = self.guild.get_role(rid)
+            if role:
+                try: await member.remove_roles(role, reason="Rôles supplémentaires (modification)")
+                except Exception: pass
+
+        # Met à jour la base pour la suite
+        self.base_role_ids = new_base
+
+        # Affiche le récap à jour
+        base_names = roles_to_names(self.guild, self.base_role_ids)
+        extra_names = [r.name for r in member.roles if r.id in EXTRA_ROLE_IDS]
+
+        await interaction.followup.edit_message(
+            message_id=interaction.message.id,
+            content=(
+                f"📋 **Récapitulatif — {member.mention}**\n"
+                f"🏷️ Rôles de base : **{', '.join(base_names) if base_names else '—'}**\n"
+                f"➕ Rôles supplémentaires : **{', '.join(extra_names) if extra_names else '—'}**"
+            ),
+            view=FinalConfirmView(target_member_id=self.target_member_id, guild=self.guild, base_role_ids=self.base_role_ids),
+        )
+
+    @discord.ui.button(label="Annuler", style=discord.ButtonStyle.secondary)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        member = self.guild.get_member(self.target_member_id) or await self.guild.fetch_member(self.target_member_id)
+        if member is None:
+            await interaction.response.send_message("⚠️ Membre introuvable.", ephemeral=True)
+            return
+        base_names = roles_to_names(self.guild, self.base_role_ids)
+        extra_names = [r.name for r in member.roles if r.id in EXTRA_ROLE_IDS]
+        await interaction.response.edit_message(
+            content=(
+                f"📋 **Récapitulatif — {member.mention}**\n"
+                f"🏷️ Rôles de base : **{', '.join(base_names) if base_names else '—'}**\n"
+                f"➕ Rôles supplémentaires : **{', '.join(extra_names) if extra_names else '—'}**"
+            ),
+            view=FinalConfirmView(target_member_id=self.target_member_id, guild=self.guild, base_role_ids=self.base_role_ids),
+        )
+
+# ==== Étape 4 : Récap final + actions ====
 class FinalConfirmView(discord.ui.View):
     def __init__(self, target_member_id: int, guild: discord.Guild, base_role_ids: List[int]):
         super().__init__(timeout=3600)
@@ -422,12 +561,9 @@ class FinalConfirmView(discord.ui.View):
         self.guild = guild
         self.base_role_ids = base_role_ids
 
-    def _is_direction(self, user: discord.Member) -> bool:
-        return any(r.id == DIRECTION_ROLE_ID for r in user.roles)
-
-    @discord.ui.button(label="✅ Confirmer & Clôturer", style=discord.ButtonStyle.success)
+    @discord.ui.button(label="✅ Valider et clôturer", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not isinstance(interaction.user, discord.Member) or not self._is_direction(interaction.user):
+        if not isinstance(interaction.user, discord.Member) or not is_direction(interaction.user):
             await interaction.response.send_message("Action réservée à la **Direction**.", ephemeral=True)
             return
 
@@ -436,7 +572,6 @@ class FinalConfirmView(discord.ui.View):
             await interaction.response.send_message("⚠️ Membre introuvable.", ephemeral=True)
             return
 
-        # Construire la liste finale
         base_names = roles_to_names(self.guild, self.base_role_ids)
         extra_names = [r.name for r in member.roles if r.id in EXTRA_ROLE_IDS]
         final_list = ", ".join([*base_names, *extra_names]) if (base_names or extra_names) else "—"
@@ -449,14 +584,14 @@ class FinalConfirmView(discord.ui.View):
             view=None,
         )
 
-    @discord.ui.button(label="↩️ Modifier les rôles suppl.", style=discord.ButtonStyle.secondary)
+    @discord.ui.button(label="🛠️ Modifier", style=discord.ButtonStyle.secondary)
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not isinstance(interaction.user, discord.Member) or not self._is_direction(interaction.user):
+        if not isinstance(interaction.user, discord.Member) or not is_direction(interaction.user):
             await interaction.response.send_message("Action réservée à la **Direction**.", ephemeral=True)
             return
         await interaction.response.edit_message(
-            content="Sélectionne des **rôles supplémentaires** (si besoin), puis **Ajouter** ou **📋 Récapitulatif**.",
-            view=ExtraRolesFlowView(target_member_id=self.target_member_id, guild=self.guild, base_role_ids=self.base_role_ids),
+            content=f"🛠️ **Modifier les rôles** de <@{self.target_member_id}>",
+            view=ModifyAllRolesView(target_member_id=self.target_member_id, guild=self.guild, base_role_ids=self.base_role_ids),
         )
 
 # ==== COG ====
