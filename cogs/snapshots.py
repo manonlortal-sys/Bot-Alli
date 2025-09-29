@@ -12,6 +12,7 @@ from storage import (
     hourly_split_all,
     seed_leaderboard_totals,
     seed_aggregates,
+    clear_baseline,
     get_guild_config,   # multi-serveur
 )
 
@@ -39,18 +40,22 @@ class SnapshotsCog(commands.Cog):
         w_all, l_all, inc_all, att_all = agg_totals_all(guild.id)
         w_g1, l_g1, inc_g1, att_g1 = agg_totals_by_team(guild.id, 1)
         w_g2, l_g2, inc_g2, att_g2 = agg_totals_by_team(guild.id, 2)
+        w_g3, l_g3, inc_g3, att_g3 = agg_totals_by_team(guild.id, 3)
+        w_g4, l_g4, inc_g4, att_g4 = agg_totals_by_team(guild.id, 4)
         m, a, s, n = hourly_split_all(guild.id)
 
         defense_by_user = get_leaderboard_totals_all(guild.id, "defense")
         ping_by_user    = get_leaderboard_totals_all(guild.id, "pingeur")
 
         payload = {
-            "schema_version": 1,
+            "schema_version": 2,
             "guild_id": guild.id,
             "generated_at": paris_now_iso(),
             "global": {"attacks": att_all, "wins": w_all, "losses": l_all, "incomplete": inc_all},
             "team_1": {"attacks": att_g1, "wins": w_g1, "losses": l_g1, "incomplete": inc_g1},
             "team_2": {"attacks": att_g2, "wins": w_g2, "losses": l_g2, "incomplete": inc_g2},
+            "team_3": {"attacks": att_g3, "wins": w_g3, "losses": l_g3, "incomplete": inc_g3},
+            "team_4": {"attacks": att_g4, "wins": w_g4, "losses": l_g4, "incomplete": inc_g4},
             "hourly_buckets": {"morning": m, "afternoon": a, "evening": s, "night": n},
             "defense_by_user": defense_by_user,
             "ping_by_user": ping_by_user
@@ -90,12 +95,23 @@ class SnapshotsCog(commands.Cog):
                     break
                 except Exception:
                     continue
-        if not latest_json or int(latest_json.get("guild_id", 0)) != guild.id:
-            return
 
-        seed_aggregates(guild.id, latest_json.get("global", {}), latest_json.get("team_1", {}), latest_json.get("team_2", {}), latest_json.get("hourly_buckets", {}))
-        seed_leaderboard_totals(guild.id, "defense", {int(k): int(v) for k, v in latest_json.get("defense_by_user", {}).items()})
-        seed_leaderboard_totals(guild.id, "pingeur", {int(k): int(v) for k, v in latest_json.get("ping_by_user", {}).items()})
+        if latest_json and int(latest_json.get("guild_id", 0)) == guild.id:
+            # Charger baseline depuis le snapshot (4 équipes)
+            seed_aggregates(
+                guild.id,
+                latest_json.get("global", {}),
+                latest_json.get("team_1", {}),
+                latest_json.get("team_2", {}),
+                latest_json.get("hourly_buckets", {}),
+                latest_json.get("team_3", {}),
+                latest_json.get("team_4", {}),
+            )
+            seed_leaderboard_totals(guild.id, "defense", {int(k): int(v) for k, v in latest_json.get("defense_by_user", {}).items()})
+            seed_leaderboard_totals(guild.id, "pingeur", {int(k): int(v) for k, v in latest_json.get("ping_by_user", {}).items()})
+        else:
+            # Aucun snapshot -> baseline = 0
+            clear_baseline(guild.id)
 
         from .leaderboard import update_leaderboards
         await update_leaderboards(self.bot, guild)
