@@ -168,7 +168,7 @@ class WelcomeView(discord.ui.View):
 
 # ==== UI: Validation par Direction ====
 class ValidationButtons(discord.ui.View):
-    # Déjà bien > 1h (24h)
+    # Timeout étendu (24h) pour laisser le temps à la direction
     def __init__(self, target_user_id: int, chosen_label: str, chosen_role_id: int):
         super().__init__(timeout=86400)
         self.target_user_id = target_user_id
@@ -221,14 +221,14 @@ class ValidationButtons(discord.ui.View):
         except Exception:
             pass
 
-        # Proposer des rôles supplémentaires (éphémère pour le validateur)
+        # Proposer des rôles supplémentaires (éphémère pour le validateur), liste déjà chargée
         await interaction.response.send_message(
             content=(
                 f"✅ Validation effectuée pour {member.mention}\n"
                 f"🏅 Rôles attribués : **{', '.join(applied) if applied else '—'}**\n"
                 f"➕ Tu peux ajouter des **rôles supplémentaires** ci-dessous (facultatif)."
             ),
-            view=ExtraRolesView(target_member_id=member.id),
+            view=ExtraRolesView(target_member_id=member.id, guild=interaction.guild),
             ephemeral=True,
         )
 
@@ -267,25 +267,12 @@ class ExtraRolesSelect(discord.ui.Select):
 
 class ExtraRolesView(discord.ui.View):
     # Timeout étendu à 1h
-    def __init__(self, target_member_id: int):
+    def __init__(self, target_member_id: int, guild: discord.Guild):
         super().__init__(timeout=3600)
         self.target_member_id = target_member_id
-        self.roles_select: Optional[ExtraRolesSelect] = None
-
-    async def on_timeout(self):
-        # Vue éphémère : rien de spécial
-        pass
-
-    @discord.ui.button(label="Actualiser la liste", style=discord.ButtonStyle.secondary, emoji="🔄")
-    async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
-        guild = interaction.guild
-        if guild is None:
-            return
-        if self.roles_select:
-            self.remove_item(self.roles_select)
+        # Pré-remplir le sélecteur dès la création (pas de bouton "Actualiser")
         self.roles_select = ExtraRolesSelect(guild)
         self.add_item(self.roles_select)
-        await interaction.response.edit_message(view=self)
 
     @discord.ui.button(label="Ajouter les rôles sélectionnés", style=discord.ButtonStyle.primary, emoji="➕")
     async def add_selected(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -301,10 +288,12 @@ class ExtraRolesView(discord.ui.View):
             await interaction.response.send_message("⚠️ Membre introuvable.", ephemeral=True)
             return
 
-        if self.roles_select is None:
-            self.roles_select = ExtraRolesSelect(guild)
-
         chosen_ids = self.roles_select.selected_ids()
+        if not chosen_ids:
+            # Ne pas fermer : rappeler de choisir
+            await interaction.response.send_message("Sélectionne au moins **un rôle** avant d’ajouter, ou ferme cette fenêtre.", ephemeral=True)
+            return
+
         applied: List[str] = []
         for rid in chosen_ids:
             role = guild.get_role(rid)
