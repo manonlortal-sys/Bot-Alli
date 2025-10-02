@@ -90,7 +90,6 @@ if __name__ == "__main__":
         upsert_team(1139550147190214727, 2, "Wanted 2",      1421860260377006295, "WANTED 2",     2)
         upsert_team(1139550147190214727, 3, "Snowflake",     1421859079755927682, "SNOWFLAKE",    3)
         upsert_team(1139550147190214727, 4, "Secteur K",     1419320615999111359, "SECTEUR K",    4)
-        upsert_team(1139550147190214727, 5, "La bande",      1421927584802934915, "LA BANDE",     5)
         upsert_team(1139550147190214727, 6, "HAGRATIME",     1421927858967810110, "HAGRATIME",    6)
         upsert_team(1139550147190214727, 7, "HagraPaLtime",  1421927953188524144, "HAGRAPALTIME", 7)
         # ➕ Nouvelle équipe : PRISME (bouton bleu)
