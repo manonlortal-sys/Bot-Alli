@@ -97,6 +97,66 @@ class ModeSelect(discord.ui.Select):
         await interaction.response.defer()
 
 
+class PvPNameModal(discord.ui.Modal, title="📝 Pseudo IG (optionnel)"):
+    pseudo = discord.ui.TextInput(
+        label="Ton pseudo en jeu (optionnel)",
+        placeholder="Ex: Kicard",
+        required=False,
+        max_length=64,
+    )
+
+    def __init__(
+        self,
+        author: discord.Member,
+        mine: List[str],
+        wanted: List[str],
+        use_all_except: bool,
+        mode_key: str,
+    ):
+        super().__init__(timeout=300)
+        self.author = author
+        self.mine = mine
+        self.wanted = wanted
+        self.use_all_except = use_all_except
+        self.mode_key = mode_key
+
+    async def on_submit(self, interaction: discord.Interaction):
+        mode_display = MODE_DISPLAY.get(self.mode_key, "Kolizeum")
+
+        # Rendu blocs
+        mine_block = render_classes_block(self.mine)
+        wanted_block = (
+            f"✨ Toutes sauf :\n{render_classes_block(self.mine)}"
+            if self.use_all_except else
+            render_classes_block(self.wanted)
+        )
+
+        # Section pseudo (si rempli)
+        pseudo_line = f"👤 **Pseudo IG :** {str(self.pseudo).strip()}\n" if str(self.pseudo).strip() else ""
+
+        # Ping hors embed
+        mention = f"<@&{PVP_ROLE_ID}>"
+
+        # Embed
+        embed = discord.Embed(
+            title="⚔️ ALERTE JOUEURS PVP ⚔️",
+            description=(
+                f"{pseudo_line}"
+                f"Le joueur **{self.author.display_name}** cherche du monde pour **{mode_display}**.\n\n"
+                f"🧙‍♂️ **J’ai déjà :**\n{mine_block}\n\n"
+                f"🎯 **Je recherche :**\n{wanted_block}\n\n"
+                f"*Merci de vous connecter ou de vous signaler auprès de ce joueur !*"
+            ),
+            color=discord.Color.blue(),
+        )
+
+        channel = interaction.channel
+        await channel.send(mention)
+        await channel.send(embed=embed)
+
+        await interaction.response.send_message("✅ Alerte PVP envoyée.", ephemeral=True)
+
+
 class PvPView(discord.ui.View):
     def __init__(self, author: discord.Member):
         super().__init__(timeout=180)
@@ -132,11 +192,6 @@ class PvPView(discord.ui.View):
         # Logique "Toutes sauf les miennes"
         use_all_except = SPECIAL_ALL_EXCEPT_MINE in wanted_vals
         if use_all_except:
-            # nécessite "mes classes"
-            if not mine:
-                await interaction.response.send_message("Pour utiliser **✨ Toutes sauf les miennes**, sélectionne d’abord **J’ai déjà**.", ephemeral=True)
-                return
-            # on calcule wanted = toutes - mes classes
             mine_set: Set[str] = set(mine)
             wanted_set: Set[str] = set(ALL_KEYS) - mine_set
             wanted: List[str] = [k for k in ALL_KEYS if k in wanted_set]  # conserver l’ordre global
@@ -147,37 +202,17 @@ class PvPView(discord.ui.View):
             await interaction.response.send_message("Ta sélection **exclut toutes les classes**. Ajuste tes choix.", ephemeral=True)
             return
 
+        # Ouvrir le modal pour demander (optionnel) le pseudo IG
         mode_key = mode_vals[0]
-        mode_display = MODE_DISPLAY.get(mode_key, "Kolizeum")
-
-        # Rendu blocs
-        mine_block = render_classes_block(mine)
-        wanted_block = (
-            f"✨ Toutes sauf :\n{render_classes_block(mine)}"
-            if use_all_except else
-            render_classes_block(wanted)
+        await interaction.response.send_modal(
+            PvPNameModal(
+                author=self.author,
+                mine=mine,
+                wanted=wanted,
+                use_all_except=use_all_except,
+                mode_key=mode_key,
+            )
         )
-
-        # Ping hors embed
-        mention = f"<@&{PVP_ROLE_ID}>"
-
-        # Embed
-        embed = discord.Embed(
-            title="⚔️ ALERTE JOUEURS PVP ⚔️",
-            description=(
-                f"Le joueur **{self.author.display_name}** cherche du monde pour **{mode_display}**.\n\n"
-                f"🧙‍♂️ **J’ai déjà :**\n{mine_block}\n\n"
-                f"🎯 **Je recherche :**\n{wanted_block}\n\n"
-                f"*Merci de vous connecter ou de vous signaler auprès de ce joueur !*"
-            ),
-            color=discord.Color.blue(),
-        )
-
-        channel = interaction.channel
-        await channel.send(mention)
-        await channel.send(embed=embed)
-
-        await interaction.response.send_message("✅ Alerte PVP envoyée.", ephemeral=True)
         self.stop()
 
 
