@@ -1,5 +1,5 @@
 # cogs/pvp.py
-from typing import List
+from typing import List, Set
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -25,27 +25,59 @@ CLASS_EMOJIS = {
     "steamer": ("Steamer", "<:steam:1422183641030725642>"),
 }
 
+ALL_KEYS: List[str] = list(CLASS_EMOJIS.keys())
+SPECIAL_ALL_EXCEPT_MINE = "ALL_EXCEPT_MINE"  # valeur spéciale du sélecteur "recherchées"
+
 MODE_DISPLAY = {
     "kolizeum": "🏟️ Kolizeum 🏟️",
     "percepteur": "🐎 Percepteur 🐎",
 }
 
 
-class ClassesSelect(discord.ui.Select):
+def render_classes_block(keys: List[str]) -> str:
+    lines: List[str] = []
+    for k in keys:
+        label, emoji_txt = CLASS_EMOJIS.get(k, (k, ""))
+        lines.append(f"{emoji_txt} {label}")
+    return "\n".join(lines) if lines else "—"
+
+
+class MyClassesSelect(discord.ui.Select):
+    """Sélecteur multi pour les classes que le joueur a (aucune limite max)."""
     def __init__(self):
         options = [
-            discord.SelectOption(label=lbl, value=key, description=None, emoji=None)
+            discord.SelectOption(label=lbl, value=key)
             for key, (lbl, _) in CLASS_EMOJIS.items()
         ]
         super().__init__(
-            placeholder="Sélectionne une ou plusieurs classes…",
+            placeholder="🧙‍♂️ Sélectionne **tes classes** (j’ai déjà)…",
+            min_values=1,
+            max_values=len(options),  # pas de limite
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.defer()  # le bouton gère la suite
+
+
+class WantedClassesSelect(discord.ui.Select):
+    """Sélecteur multi pour les classes recherchées + option ✨ Toutes sauf les miennes."""
+    def __init__(self):
+        options = [
+            discord.SelectOption(label="✨ Toutes sauf les miennes", value=SPECIAL_ALL_EXCEPT_MINE, emoji="✨"),
+        ] + [
+            discord.SelectOption(label=lbl, value=key)
+            for key, (lbl, _) in CLASS_EMOJIS.items()
+        ]
+        super().__init__(
+            placeholder="🎯 Sélectionne les **classes recherchées**… (ou ✨ Toutes sauf les miennes)",
             min_values=1,
             max_values=len(options),
             options=options,
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()  # on laisse le bouton gérer l'envoi
+        await interaction.response.defer()  # le bouton gère la suite
 
 
 class ModeSelect(discord.ui.Select):
@@ -55,23 +87,25 @@ class ModeSelect(discord.ui.Select):
             discord.SelectOption(label="Percepteur", value="percepteur", emoji="🐎"),
         ]
         super().__init__(
-            placeholder="Choisis le mode (Kolizeum ou Percepteur)…",
+            placeholder="Choisis le **mode** (Kolizeum ou Percepteur)…",
             min_values=1,
             max_values=1,
             options=options,
         )
 
     async def callback(self, interaction: discord.Interaction):
-        await interaction.response.defer()  # on laisse le bouton gérer l'envoi
+        await interaction.response.defer()
 
 
 class PvPView(discord.ui.View):
     def __init__(self, author: discord.Member):
         super().__init__(timeout=180)
         self.author = author
-        self.classes_select = ClassesSelect()
+        self.my_classes = MyClassesSelect()
+        self.wanted_classes = WantedClassesSelect()
         self.mode_select = ModeSelect()
-        self.add_item(self.classes_select)
+        self.add_item(self.my_classes)
+        self.add_item(self.wanted_classes)
         self.add_item(self.mode_select)
 
     @discord.ui.button(label="Envoyer l’alerte", style=discord.ButtonStyle.primary, emoji="⚔️")
@@ -80,46 +114,69 @@ class PvPView(discord.ui.View):
             await interaction.response.send_message("Seul l’initiateur peut envoyer cette alerte.", ephemeral=True)
             return
 
-        selected_classes: List[str] = self.classes_select.values or []
+        mine: List[str] = self.my_classes.values or []
+        wanted_vals: List[str] = self.wanted_classes.values or []
         mode_vals: List[str] = self.mode_select.values or []
 
-        if not selected_classes:
-            await interaction.response.send_message("Sélectionne au moins **une classe**.", ephemeral=True)
+        # Validations
+        if not mine:
+            await interaction.response.send_message("Sélectionne au moins **une classe** dans **J’ai déjà**.", ephemeral=True)
+            return
+        if not wanted_vals:
+            await interaction.response.send_message("Sélectionne au moins **une** classe dans **Je recherche** (ou ✨ Toutes sauf les miennes).", ephemeral=True)
             return
         if not mode_vals:
             await interaction.response.send_message("Sélectionne le **mode** (Kolizeum ou Percepteur).", ephemeral=True)
             return
 
+        # Logique "Toutes sauf les miennes"
+        use_all_except = SPECIAL_ALL_EXCEPT_MINE in wanted_vals
+        if use_all_except:
+            # nécessite "mes classes"
+            if not mine:
+                await interaction.response.send_message("Pour utiliser **✨ Toutes sauf les miennes**, sélectionne d’abord **J’ai déjà**.", ephemeral=True)
+                return
+            # on calcule wanted = toutes - mes classes
+            mine_set: Set[str] = set(mine)
+            wanted_set: Set[str] = set(ALL_KEYS) - mine_set
+            wanted: List[str] = [k for k in ALL_KEYS if k in wanted_set]  # conserver l’ordre global
+        else:
+            wanted = [k for k in wanted_vals if k in CLASS_EMOJIS]
+
+        if not wanted:
+            await interaction.response.send_message("Ta sélection **exclut toutes les classes**. Ajuste tes choix.", ephemeral=True)
+            return
+
         mode_key = mode_vals[0]
         mode_display = MODE_DISPLAY.get(mode_key, "Kolizeum")
 
-        # Construire la liste en colonne avec emojis custom
-        lines = []
-        for key in selected_classes:
-            label, emoji_txt = CLASS_EMOJIS.get(key, (key, ""))  # fallback
-            lines.append(f"{emoji_txt} {label}")
-        classes_block = "\n".join(lines)
+        # Rendu blocs
+        mine_block = render_classes_block(mine)
+        wanted_block = (
+            f"✨ Toutes sauf :\n{render_classes_block(mine)}"
+            if use_all_except else
+            render_classes_block(wanted)
+        )
 
-        # Message hors embed : ping rôle PVP
+        # Ping hors embed
         mention = f"<@&{PVP_ROLE_ID}>"
 
-        # Embed bleu
+        # Embed
         embed = discord.Embed(
             title="⚔️ ALERTE JOUEURS PVP ⚔️",
             description=(
-                f"Le joueur **{self.author.display_name}** cherche les classes suivantes pour **{mode_display}** :\n\n"
-                f"{classes_block}\n\n"
+                f"Le joueur **{self.author.display_name}** cherche du monde pour **{mode_display}**.\n\n"
+                f"🧙‍♂️ **J’ai déjà :**\n{mine_block}\n\n"
+                f"🎯 **Je recherche :**\n{wanted_block}\n\n"
                 f"*Merci de vous connecter ou de vous signaler auprès de ce joueur !*"
             ),
             color=discord.Color.blue(),
         )
 
-        # Envoyer dans le même canal
         channel = interaction.channel
         await channel.send(mention)
         await channel.send(embed=embed)
 
-        # Confirmer à l'utilisateur (éphémère)
         await interaction.response.send_message("✅ Alerte PVP envoyée.", ephemeral=True)
         self.stop()
 
@@ -128,7 +185,7 @@ class PvPCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="pvp", description="Alerter @pvp avec les classes recherchées et le mode (Kolizeum/Percepteur).")
+    @app_commands.command(name="pvp", description="Alerter @pvp avec tes classes et celles que tu recherches (Kolizeum/Percepteur).")
     async def pvp(self, interaction: discord.Interaction):
         guild = interaction.guild
         if guild is None:
