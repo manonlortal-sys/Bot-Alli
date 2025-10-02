@@ -1,5 +1,6 @@
 import discord
 from discord.ext import commands
+from discord import app_commands
 
 from storage import (
     get_leaderboard_post,
@@ -9,8 +10,15 @@ from storage import (
     agg_totals_by_team,
     get_guild_config,
     get_teams,
+    incr_leaderboard,
+    decr_leaderboard,
+    set_aggregate,
+    get_aggregate,
 )
 
+# --------------------------------------------------
+# Fonctions utilitaires pour l’affichage
+# --------------------------------------------------
 def medals_top_defenders(top: list[tuple[int, int]]) -> str:
     lines = []
     for i, (uid, cnt) in enumerate(top):
@@ -38,6 +46,9 @@ def fmt_stats_block(att: int, w: int, l: int, inc: int) -> str:
 def separator_field() -> tuple[str, str]:
     return ("──────────", "\u200b")
 
+# --------------------------------------------------
+# Mise à jour des leaderboards
+# --------------------------------------------------
 async def update_leaderboards(bot: commands.Bot, guild: discord.Guild):
     cfg = get_guild_config(guild.id)
     if not cfg:
@@ -116,10 +127,122 @@ async def update_leaderboards(bot: commands.Bot, guild: discord.Guild):
     embed_ping.add_field(name="**🏅 Top pingeurs**", value=ping_block, inline=False)
     await msg_ping.edit(embed=embed_ping)
 
+# --------------------------------------------------
+# Cog + Commandes d'ajustement (avec autocomplétion)
+# --------------------------------------------------
+PLAYER_COUNTER_CHOICES = ["defense", "pingeur", "win", "loss"]
+TEAM_COUNTER_CHOICES = ["attacks", "wins", "losses", "incomplete"]
 
 class LeaderboardCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
+    # ---------- Helpers permissions ----------
+    def _is_admin(self, interaction: discord.Interaction) -> bool:
+        cfg = get_guild_config(interaction.guild.id) if interaction.guild else None
+        if not cfg:
+            return False
+        admin_role_id = cfg.get("admin_role_id")
+        if not admin_role_id:
+            return False
+        member = interaction.user if isinstance(interaction.user, discord.Member) else None
+        return bool(member and any(r.id == admin_role_id for r in member.roles))
+
+    # ---------- Autocomplétion Team ----------
+    async def _team_choices(self, interaction: discord.Interaction, current: str):
+        choices: list[app_commands.Choice[int]] = []
+        if not interaction.guild:
+            return choices
+        q = (current or "").lower()
+        for t in get_teams(interaction.guild.id):
+            label = str(t["name"])
+            tid = int(t["team_id"])
+            if not q or q in label.lower():
+                # name = affiché, value = team_id (int)
+                choices.append(app_commands.Choice(name=label, value=tid))
+            if len(choices) >= 25:
+                break
+        return choices
+
+    # ---------- /adjust-player ----------
+    @app_commands.command(name="adjust-player", description="Corriger manuellement un compteur pour un joueur (admin).")
+    @app_commands.describe(
+        member="Joueur à corriger",
+        counter="Type de compteur : defense, pingeur, win, loss",
+        amount="Valeur à ajouter (positif) ou retirer (négatif), ex: -3, 2"
+    )
+    @app_commands.choices(
+        counter=[app_commands.Choice(name=c, value=c) for c in PLAYER_COUNTER_CHOICES]
+    )
+    async def adjust_player(
+        self,
+        interaction: discord.Interaction,
+        member: discord.Member,
+        counter: app_commands.Choice[str],
+        amount: int
+    ):
+        if not self._is_admin(interaction):
+            await interaction.response.send_message("❌ Tu n’as pas la permission.", ephemeral=True)
+            return
+
+        # Ajustement
+        if amount > 0:
+            for _ in range(amount):
+                incr_leaderboard(interaction.guild.id, counter.value, member.id)
+        elif amount < 0:
+            for _ in range(-amount):
+                decr_leaderboard(interaction.guild.id, counter.value, member.id)
+
+        await update_leaderboards(self.bot, interaction.guild)
+        sign = "+" if amount >= 0 else ""
+        await interaction.response.send_message(
+            f"✅ `{counter.value}` ajusté de **{sign}{amount}** pour {member.mention}.",
+            ephemeral=False
+        )
+
+    # ---------- /adjust-team ----------
+    @app_commands.command(name="adjust-team", description="Corriger manuellement un compteur pour une équipe (admin).")
+    @app_commands.describe(
+        team="Nom de l’équipe (autocomplétion)",
+        counter="Type : attacks, wins, losses, incomplete",
+        amount="Valeur à ajouter (positif) ou retirer (négatif), ex: -4, 3"
+    )
+    @app_commands.choices(
+        counter=[app_commands.Choice(name=c, value=c) for c in TEAM_COUNTER_CHOICES]
+    )
+    async def adjust_team(
+        self,
+        interaction: discord.Interaction,
+        team: int,
+        counter: app_commands.Choice[str],
+        amount: int
+    ):
+        if not self._is_admin(interaction):
+            await interaction.response.send_message("❌ Tu n’as pas la permission.", ephemeral=True)
+            return
+
+        scope = f"team:{int(team)}"
+        current_val = get_aggregate(interaction.guild.id, scope, counter.value)
+        new_val = current_val + amount
+        if new_val < 0:
+            new_val = 0  # on évite les valeurs négatives
+
+        set_aggregate(interaction.guild.id, scope, counter.value, new_val)
+
+        await update_leaderboards(self.bot, interaction.guild)
+        sign = "+" if amount >= 0 else ""
+        # retrouver le nom affichable
+        teams = {int(t["team_id"]): str(t["name"]) for t in get_teams(interaction.guild.id)}
+        team_name = teams.get(int(team), f"Team {team}")
+        await interaction.response.send_message(
+            f"✅ `{counter.value}` ajusté de **{sign}{amount}** pour **{team_name}**. (nouvelle valeur base = {new_val})",
+            ephemeral=False
+        )
+
+    @adjust_team.autocomplete("team")
+    async def adjust_team_autocomplete(self, interaction: discord.Interaction, current: str):
+        return await self._team_choices(interaction, current)
+
+# --------------------------------------------------
 async def setup(bot: commands.Bot):
     await bot.add_cog(LeaderboardCog(bot))
