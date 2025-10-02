@@ -1,3 +1,4 @@
+# cogs/alerts.py
 from typing import List, Optional
 import time
 import discord
@@ -37,7 +38,8 @@ TEAM_EMOJIS: dict[int, discord.PartialEmoji] = {
     # 5: (LaBande) — supprimé
     6: discord.PartialEmoji(name="HagraTime", id=1422120372836503622),
     7: discord.PartialEmoji(name="HagraPasLtime", id=1422120467812323339),
-    # (Le bouton Prisme est géré ailleurs si besoin)
+    # PRISME
+    8: discord.PartialEmoji(name="Prisme", id=1422160491228434503),
 }
 
 # ---------- Embed constructeur ----------
@@ -233,10 +235,12 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
     for t in teams:
         tid = int(t["team_id"])
         emoji = TEAM_EMOJIS.get(tid, "🔔")
+        # PRISME (team_id=8) en bleu; autres en rouge
+        style = discord.ButtonStyle.primary if tid == 8 else discord.ButtonStyle.danger
 
         btn = discord.ui.Button(
             label=str(t["label"])[:80],
-            style=discord.ButtonStyle.danger,
+            style=style,
             emoji=emoji,
             custom_id=f"pingpanel:team:{t['team_id']}",
         )
