@@ -70,7 +70,7 @@ async def update_leaderboards(bot: commands.Bot, guild: discord.Guild):
         msg_def = await channel.send("📊 **Leaderboard Défense**")
         set_leaderboard_post(guild.id, channel.id, msg_def.id, "defense")
 
-    top_def = get_leaderboard_totals(guild.id, "defense", limit=100)
+    top_def = get_leaderboard_totals(guild.id, "defense", limit=15)
     top_block = medals_top_defenders(top_def)
 
     w_all, l_all, inc_all, att_all = agg_totals_all(guild.id)
