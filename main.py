@@ -36,7 +36,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 async def setup_hook():
     print("🚀 setup_hook démarré")
 
-    for ext in ["cogs.alerts", "cogs.reactions", "cogs.leaderboard", "cogs.stats", "cogs.pvp", "cogs.snapshots"]:
+    for ext in ["cogs.alerts", "cogs.reactions", "cogs.leaderboard", "cogs.attaque", "cogs.stats", "cogs.pvp", "cogs.snapshots"]:
         try:
             await bot.load_extension(ext)
             print(f"✅ {ext} chargé")
