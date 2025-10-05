@@ -1,183 +1,169 @@
 # cogs/attaque.py
-from typing import List
+from typing import Optional, List
 import discord
 from discord.ext import commands
 from discord import app_commands
 
-MAX_COOP = 5
+# Configuration
+MAX_COOPS = 5
 MAX_IMAGES = 3
-THREAD_ARCHIVE_MINUTES = 60  # auto-archive duration in minutes
-
-
-class AttackGuildModal(discord.ui.Modal, title="⚔️ Nom de l'alliance / guilde attaquée"):
-    guild_name = discord.ui.TextInput(
-        label="Nom de l’alliance ou de la guilde attaquée",
-        placeholder="Ex : [Snowflake] ou Secteur K",
-        required=True,
-        max_length=120,
-    )
-
-    def __init__(self, author: discord.Member, coops: List[int], channel: discord.abc.GuildChannel):
-        super().__init__(timeout=300)
-        self.author = author
-        self.coops = coops
-        self.channel = channel
-
-    async def on_submit(self, interaction: discord.Interaction):
-        channel = self.channel
-        if channel is None:
-            await interaction.response.send_message("Impossible de récupérer le canal.", ephemeral=True)
-            return
-
-        thread_name = f"attaque-{self.author.display_name}"
-        try:
-            # Selon les permissions et le type de canal, create_thread direct peut échouer → fallback prévu
-            thread = await channel.create_thread(
-                name=thread_name,
-                auto_archive_duration=THREAD_ARCHIVE_MINUTES,
-            )
-        except Exception:
-            starter = await channel.send(f"Thread pour l'attaque de {self.author.mention}")
-            thread = await starter.create_thread(name=thread_name, auto_archive_duration=THREAD_ARCHIVE_MINUTES)
-
-        instr = (
-            f"📎 **Poste ici jusqu'à {MAX_IMAGES} captures d'écran** (png/jpg/webp). "
-            "Quand tu as fini, clique sur **Publier** pour que le bot poste l'alerte finale dans le canal."
-        )
-        view = PublishView(
-            author=self.author,
-            coops=self.coops,
-            guild_name=self.guild_name.value,
-            origin_channel=channel,
-            origin_thread=thread,
-        )
-        await thread.send(content=instr, view=view)
-
-        await interaction.response.send_message(f"Thread créé : {thread.mention}. Postez vos captures dedans.", ephemeral=True)
-
-
-class PublishView(discord.ui.View):
-    def __init__(self, author: discord.Member, coops: List[int], guild_name: str, origin_channel: discord.abc.GuildChannel, origin_thread: discord.Thread):
-        super().__init__(timeout=None)
-        self.author = author
-        self.coops = coops
-        self.guild_name = guild_name
-        self.origin_channel = origin_channel
-        self.origin_thread = origin_thread
-
-    @discord.ui.button(label="Publier", style=discord.ButtonStyle.success, emoji="📤")
-    async def publish(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.channel is None or interaction.channel.id != self.origin_thread.id:
-            await interaction.response.send_message("Ce bouton doit être utilisé dans le thread des captures.", ephemeral=True)
-            return
-
-        await interaction.response.defer(ephemeral=True)
-
-        imgs = []
-        try:
-            async for m in self.origin_thread.history(limit=200):
-                if m.attachments:
-                    for att in m.attachments:
-                        if len(imgs) >= MAX_IMAGES:
-                            break
-                        if att.content_type and att.content_type.startswith("image"):
-                            imgs.append(att.url)
-                        else:
-                            lower = (att.filename or "").lower()
-                            if lower.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
-                                imgs.append(att.url)
-                if len(imgs) >= MAX_IMAGES:
-                    break
-        except Exception:
-            pass
-
-        title = f"⚔️ Attaque lancée par {self.author.display_name}"
-        parts = []
-        if self.coops:
-            coop_mentions = ", ".join(f"<@{uid}>" for uid in self.coops)
-            parts.append(f"🧑‍🤝‍🧑 **Coéquipiers :** {coop_mentions}")
-        parts.append(f"🛡️ **Guilde/Alliance attaquée :** {self.guild_name}")
-        desc = "\n".join(parts)
-
-        embed = discord.Embed(title=title, description=desc, color=discord.Color.dark_red())
-        embed.set_footer(text=f"Publié par {self.author.display_name}")
-
-        try:
-            if imgs:
-                embed.set_image(url=imgs[0])
-                if len(imgs) > 1:
-                    others = "\n".join(f"[Capture {i}]({url})" for i, url in enumerate(imgs[1:], start=2))
-                    embed.add_field(name="📷 Autres captures", value=others, inline=False)
-            await self.origin_channel.send(embed=embed)
-        except Exception:
-            await interaction.followup.send("Erreur lors de l'envoi de l'alerte.", ephemeral=True)
-            return
-
-        try:
-            await self.origin_thread.edit(archived=True)
-        except Exception:
-            pass
-
-        await interaction.followup.send("Alerte publiée.", ephemeral=True)
-
-
-class CoopsSelectView(discord.ui.View):
-    def __init__(self, author: discord.Member):
-        super().__init__(timeout=300)
-        self.author = author
-        self.selected_ids: List[int] = []
-
-        self.user_select = discord.ui.UserSelect(
-            placeholder="Sélectionne tes coéquipiers (ou laisse vide)",
-            min_values=0,
-            max_values=MAX_COOP,
-        )
-        # le callback d'un select instancié reçoit uniquement `interaction`
-        self.user_select.callback = self.on_select  # type: ignore
-        self.add_item(self.user_select)
-
-        self.add_item(self.ContinueButton())
-
-    async def on_select(self, interaction: discord.Interaction):
-        # récupérer les valeurs depuis le composant lui-même
-        self.selected_ids = [u.id for u in self.user_select.values]
-        # petit defer pour éviter l'alerte côté client si l'utilisateur clique vite
-        try:
-            await interaction.response.defer(ephemeral=True)
-        except Exception:
-            pass
-
-    class ContinueButton(discord.ui.Button):
-        def __init__(self):
-            super().__init__(label="Continuer", style=discord.ButtonStyle.primary)
-
-        async def callback(self, interaction: discord.Interaction):
-            view: CoopsSelectView = self.view  # type: ignore
-            if view is None:
-                await interaction.response.send_message("Erreur interne.", ephemeral=True)
-                return
-            await interaction.response.send_modal(
-                AttackGuildModal(author=interaction.user, coops=view.selected_ids, channel=interaction.channel)
-            )
+ALLOWED_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
 
 class AttaqueCog(commands.Cog):
+    """Commande /attaque : coéquipiers (CSV opt), cible, et jusqu'à 3 screenshots attachés à la commande."""
+
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    @app_commands.command(name="attaque", description="Déclarer une attaque : coéquipiers + guilde/alliance attaquée + screenshots")
-    async def attaque(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        if guild is None or interaction.channel is None:
-            await interaction.response.send_message("Commande à utiliser sur un serveur.", ephemeral=True)
+    @app_commands.command(
+        name="attaque",
+        description="Déclarer une attaque (coéquipiers, guilde/alliance attaquée, et 1–3 screens).",
+    )
+    @app_commands.describe(
+        coequipiers="(optionnel) mentions séparées par des virgules : ex. '@A,@B' — max 5",
+        cible="Nom de la guilde ou alliance attaquée",
+        screenshot_1="Capture principale (image) — obligatoire",
+        screenshot_2="Capture secondaire (image) — optionnel",
+        screenshot_3="Capture tertiaire (image) — optionnel",
+    )
+    async def attaque(
+        self,
+        interaction: discord.Interaction,
+        cible: str,
+        screenshot_1: discord.Attachment,
+        coequipiers: Optional[str] = None,
+        screenshot_2: Optional[discord.Attachment] = None,
+        screenshot_3: Optional[discord.Attachment] = None,
+    ):
+        """
+        Flow :
+         - l'utilisateur fournit la commande avec pièce(s) jointe(s) (attachments).
+         - le bot valide les images, construit un embed et l'envoie dans le même canal.
+        Notes :
+         - Discord UI permet d'attacher des fichiers directement lors de l'exécution de la commande.
+         - coequipiers est une chaîne optionnelle (CSV) car les slash options ne gèrent pas
+           nativement un "multi user" paramètre dans toutes les versions.
+        """
+
+        # Vérifications basiques
+        if interaction.guild is None or interaction.channel is None:
+            await interaction.response.send_message("Commande utilisable uniquement dans un serveur.", ephemeral=True)
             return
 
-        view = CoopsSelectView(author=interaction.user)
-        await interaction.response.send_message(
-            "Sélectionne tes coéquipiers, puis clique sur **Continuer**.",
-            view=view,
-            ephemeral=True,
-        )
+        # Defer (si le traitement peut prendre >3s)
+        await interaction.response.defer(ephemeral=False)
+
+        # Parse coequipiers (CSV de mentions ou d'IDs) -> list of mention strings
+        coop_mentions: List[str] = []
+        if coequipiers:
+            # split on comma, strip whitespace
+            parts = [p.strip() for p in coequipiers.split(",") if p.strip()]
+            for p in parts[:MAX_COOPS]:
+                # accept either mention form <@id> or plain names; keep raw if ambiguous
+                # try to convert to a Member mention if possible
+                if p.startswith("<@") and p.endswith(">"):
+                    coop_mentions.append(p)
+                else:
+                    # try resolve as member by name/id
+                    member = None
+                    try:
+                        # try ID
+                        if p.isdigit():
+                            member = await interaction.guild.fetch_member(int(p))
+                    except Exception:
+                        member = None
+                    if member:
+                        coop_mentions.append(member.mention)
+                    else:
+                        # fallback: treat as plain text (will be shown as-is)
+                        coop_mentions.append(p)
+
+        # Collect attachments in order passed (1 is required)
+        attachments: List[discord.Attachment] = []
+        if screenshot_1:
+            attachments.append(screenshot_1)
+        if screenshot_2:
+            attachments.append(screenshot_2)
+        if screenshot_3:
+            attachments.append(screenshot_3)
+
+        # Validate attachments: keep only images, up to MAX_IMAGES
+        image_urls: List[str] = []
+        invalid_count = 0
+        for att in attachments:
+            if len(image_urls) >= MAX_IMAGES:
+                break
+            ok = False
+            # prefer content_type check
+            try:
+                ctype = (att.content_type or "").lower()
+                if ctype and ctype.startswith("image"):
+                    ok = True
+            except Exception:
+                ok = False
+            # fallback to filename ext
+            if not ok:
+                fname = (att.filename or "").lower()
+                if any(fname.endswith(ext) for ext in ALLOWED_EXT):
+                    ok = True
+            if ok:
+                # Use att.url (Discord-hosted) — reliable
+                image_urls.append(att.url)
+            else:
+                invalid_count += 1
+
+        # If first (required) is invalid or missing -> error
+        if not image_urls:
+            await interaction.followup.send(
+                "⚠️ Aucune capture valide fournie. Assure-toi d'attacher au moins une image (png/jpg/webp).",
+                ephemeral=True,
+            )
+            return
+
+        # Build embed
+        author = interaction.user
+        title = f"⚔️ Attaque lancée par {author.display_name}"
+        desc_lines: List[str] = []
+        if coop_mentions:
+            desc_lines.append(f"🧑‍🤝‍🧑 **Coéquipiers :** {', '.join(coop_mentions)}")
+        else:
+            desc_lines.append(f"🧑‍🤝‍🧑 **Coéquipiers :** —")
+        desc_lines.append(f"🏰 **Guilde/Alliance attaquée :** {cible}")
+        desc = "\n".join(desc_lines)
+
+        embed = discord.Embed(title=title, description=desc, color=discord.Color.dark_red())
+        embed.set_footer(text=f"Publié par {author.display_name}")
+
+        # Attach images to embed: first as embed image, others as links field
+        try:
+            embed.set_image(url=image_urls[0])
+            if len(image_urls) > 1:
+                others_lines = []
+                for i, url in enumerate(image_urls[1:], start=2):
+                    others_lines.append(f"[Capture {i}]({url})")
+                embed.add_field(name="📷 Autres captures", value="\n".join(others_lines), inline=False)
+        except Exception:
+            # fallback: ignore images if embed.set_image fails
+            pass
+
+        # If some attachments were invalid, inform the user (ephemeral)
+        if invalid_count > 0:
+            await interaction.followup.send(
+                f"⚠️ {invalid_count} fichier(s) ignoré(s) (format non-image). Les images valides ont été publiées.",
+                ephemeral=True,
+            )
+
+        # Send the embed in the same channel
+        try:
+            await interaction.channel.send(embed=embed)
+        except Exception as e:
+            # final fallback: notify author
+            await interaction.followup.send(f"Erreur lors de l'envoi de l'alerte : {e}", ephemeral=True)
+            return
+
+        # Final ephemeral confirmation
+        await interaction.followup.send("✅ Alerte publiée.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
