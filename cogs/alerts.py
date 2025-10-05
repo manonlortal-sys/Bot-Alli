@@ -138,7 +138,7 @@ async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] 
 # ---------- Modal Attaquants ----------
 class AttackersModal(discord.ui.Modal, title="📝 Attaquants"):
     attackers_text = discord.ui.TextInput(
-        label="Entre le nom de l’alliance ou de la guilde qui attaque",
+        label="Guilde ou Alliance qui attaque ?",
         placeholder="Ex: [BLA] Black Legion",
         required=True,
         max_length=120,
