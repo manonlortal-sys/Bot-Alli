@@ -115,7 +115,7 @@ async def update_leaderboards(bot: commands.Bot, guild: discord.Guild):
         msg_def = await channel.send("🏆 **Leaderboard Joueurs**")
         set_leaderboard_post(guild.id, channel.id, msg_def.id, "defense_players")
 
-    top_def = get_leaderboard_totals(guild.id, "defense", limit=40)
+    top_def = get_leaderboard_totals(guild.id, "defense", limit=20)
     top_block = medals_top_defenders(top_def)
 
     embed_def = discord.Embed(title="🏆 Leaderboard Joueurs", color=discord.Color.gold())
@@ -136,7 +136,7 @@ async def update_leaderboards(bot: commands.Bot, guild: discord.Guild):
         msg_ping = await channel.send("🛎️ **Leaderboard Pingeurs**")
         set_leaderboard_post(guild.id, channel.id, msg_ping.id, "pingeur")
 
-    top_ping = get_leaderboard_totals(guild.id, "pingeur", limit=40)
+    top_ping = get_leaderboard_totals(guild.id, "pingeur", limit=20)
     ping_lines = []
     for i, (uid, cnt) in enumerate(top_ping):
         if i == 0:
