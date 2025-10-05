@@ -165,7 +165,6 @@ def create_db():
     con.commit()
     con.close()
 
-
 # ---------- Guild config ----------
 @with_db
 def upsert_guild_config(
@@ -344,7 +343,6 @@ def get_participants_user_ids(con: sqlite3.Connection, message_id: int) -> List[
     rows = con.execute("SELECT user_id FROM participants WHERE message_id=?", (message_id,)).fetchall()
     return [int(r["user_id"]) for r in rows]
 
-
 # ---------- Leaderboard counters ----------
 @with_db
 def incr_leaderboard(con: sqlite3.Connection, guild_id: int, type_: str, user_id: int):
@@ -422,7 +420,6 @@ def set_leaderboard_post(con: sqlite3.Connection, guild_id: int, channel_id: int
 
 # ---------- Aggregates (baseline & snapshots) ----------
 def _set_aggregate_txn(con: sqlite3.Connection, guild_id: int, scope: str, key: str, value: int):
-    """Helper interne: écrit avec la connexion existante (évite les verrous SQLite)."""
     con.execute("""
         INSERT INTO aggregates(guild_id, scope, key, value)
         VALUES (?,?,?,?)
@@ -449,30 +446,15 @@ def seed_aggregates_dynamic(
     team_totals: Dict[int, Dict[str, int]],
     hourly: Dict[str, int],
 ):
-    """
-    Remplace entièrement la baseline snapshot pour la guilde (version dynamique).
-    Scopes :
-      - global
-      - team:{team_id}
-      - hourly
-    """
-    # purge baseline
     con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
-
-    # Global
     for key in ("attacks", "wins", "losses", "incomplete"):
         _set_aggregate_txn(con, guild_id, "global", key, int((global_tot or {}).get(key, 0)))
-
-    # Teams
     for team_id, vals in (team_totals or {}).items():
         scope = f"team:{int(team_id)}"
         for key, val in (vals or {}).items():
             _set_aggregate_txn(con, guild_id, scope, key, int(val))
-
-    # Hourly
     for key in ("morning", "afternoon", "evening", "night"):
         _set_aggregate_txn(con, guild_id, "hourly", key, int((hourly or {}).get(key, 0)))
-
 
 @with_db
 def seed_aggregates(
@@ -509,7 +491,6 @@ def seed_leaderboard_totals(con: sqlite3.Connection, guild_id: int, type_: str, 
 def clear_baseline(con: sqlite3.Connection, guild_id: int):
     con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
     con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type IN ('defense','pingeur','win','loss')", (guild_id,))
-
 
 # ---------- Aggregates-aware readers ----------
 @with_db
@@ -583,6 +564,7 @@ def hourly_split_all(con: sqlite3.Connection, guild_id: int) -> Tuple[int, int, 
     ]
     return tuple(base_counts[i] + live_counts[i] for i in range(4))
 
+
 # ---------- Stats helpers pour snapshot ----------
 @with_db
 def get_wins_by_user(con: sqlite3.Connection, guild_id: int) -> Dict[int, int]:
@@ -621,7 +603,7 @@ def delete_message_and_participants(con: sqlite3.Connection, message_id: int):
     con.execute("DELETE FROM messages WHERE message_id=?", (message_id,))
 
 
-# ---------- Player stats (legacy, basés sur messages/participants) ----------
+# ---------- Player stats (legacy) ----------
 @with_db
 def get_player_stats(con: sqlite3.Connection, guild_id: int, user_id: int) -> Tuple[int, int, int, int]:
     row = con.execute("""
@@ -689,7 +671,7 @@ def get_player_hourly_counts(con: sqlite3.Connection, guild_id: int, user_id: in
 
 
 # ==================================================
-# ===============  ATTACKES  (/attaque)  ===========
+# ===============  ATTAQUES  (/attaque)  ===========
 # ==================================================
 
 @with_db
@@ -702,12 +684,6 @@ def insert_attack_report(
     target: Optional[str],
     created_ts: Optional[int] = None,
 ) -> int:
-    """
-    Insère un rapport d'attaque + incrémente les compteurs :
-      - leaderboard_totals(type='attack') pour auteur + coéquipiers valides
-      - attack_target_totals pour la cible (si non vide)
-    Retourne report_id.
-    """
     ts = int(created_ts or utcnow_i())
     tgt = (target or "").strip()
 
@@ -718,7 +694,6 @@ def insert_attack_report(
     """, (guild_id, message_id, author_id, tgt if tgt else None, ts))
     report_id = int(cur.lastrowid)
 
-    # coéquipiers (uniques)
     seen = set()
     for uid in (coops or []):
         try:
@@ -733,7 +708,6 @@ def insert_attack_report(
             VALUES (?,?)
         """, (report_id, uid_i))
 
-    # incrément auteur + coops
     con.execute("""
         INSERT INTO leaderboard_totals(guild_id, type, user_id, count)
         VALUES (?,?,?,1)
@@ -746,7 +720,6 @@ def insert_attack_report(
             ON CONFLICT(guild_id, type, user_id) DO UPDATE SET count=count+1
         """, (guild_id, "attack", int(uid)))
 
-    # incrément cible
     if tgt:
         con.execute("""
             INSERT INTO attack_target_totals(guild_id, target, count)
@@ -789,6 +762,7 @@ def get_attack_total_reports(con: sqlite3.Connection, guild_id: int) -> int:
     """, (guild_id,)).fetchone()
     return int(row["c"] or 0)
 
+
 # ---------- Dump complet pour snapshot ----------
 @with_db
 def get_attacks_by_user_all(con: sqlite3.Connection, guild_id: int) -> Dict[int, int]:
@@ -829,3 +803,54 @@ def seed_attack_target_totals(con: sqlite3.Connection, guild_id: int, totals: Di
             INSERT INTO attack_target_totals(guild_id, target, count)
             VALUES (?,?,?)
         """, (guild_id, str(tgt), int(cnt)))
+
+
+# ---------- Helpers reverse (suppression d'un rapport d'attaque) ----------
+@with_db
+def get_attack_report_by_message(con: sqlite3.Connection, guild_id: int, message_id: int):
+    row = con.execute("""
+        SELECT report_id, author_id, target
+        FROM attack_reports
+        WHERE guild_id=? AND message_id=?
+    """, (guild_id, message_id)).fetchone()
+    if not row:
+        return None
+    return int(row["report_id"]), int(row["author_id"]), (row["target"] or None)
+
+@with_db
+def get_attack_report_coops(con: sqlite3.Connection, report_id: int) -> List[int]:
+    rows = con.execute("""
+        SELECT user_id
+        FROM attack_report_coops
+        WHERE report_id=?
+    """, (report_id,)).fetchall()
+    return [int(r["user_id"]) for r in rows]
+
+@with_db
+def remove_attack_report(con: sqlite3.Connection, report_id: int):
+    con.execute("DELETE FROM attack_report_coops WHERE report_id=?", (report_id,))
+    con.execute("DELETE FROM attack_reports WHERE report_id=?", (report_id,))
+
+@with_db
+def decr_attack_user(con: sqlite3.Connection, guild_id: int, user_id: int):
+    con.execute("""
+        UPDATE leaderboard_totals
+        SET count = count - 1
+        WHERE guild_id=? AND type='attack' AND user_id=?
+    """, (guild_id, user_id))
+    con.execute("""
+        DELETE FROM leaderboard_totals
+        WHERE guild_id=? AND type='attack' AND user_id=? AND count<=0
+    """, (guild_id, user_id))
+
+@with_db
+def decr_attack_target(con: sqlite3.Connection, guild_id: int, target: str):
+    con.execute("""
+        UPDATE attack_target_totals
+        SET count = count - 1
+        WHERE guild_id=? AND target=?
+    """, (guild_id, target))
+    con.execute("""
+        DELETE FROM attack_target_totals
+        WHERE guild_id=? AND target=? AND count<=0
+    """, (guild_id, target))
