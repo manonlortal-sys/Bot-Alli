@@ -15,36 +15,37 @@ from storage import (
     set_aggregate,
     get_aggregate,
 )
+from cogs.alerts import TEAM_EMOJIS
 
 # --------------------------------------------------
-# Fonctions utilitaires pour l’affichage
+# Fonctions utilitaires
 # --------------------------------------------------
 def medals_top_defenders(top: list[tuple[int, int]]) -> str:
     lines = []
     for i, (uid, cnt) in enumerate(top):
         if i == 0:
-            lines.append(f"🥇 <@{uid}> : {cnt} défenses")
+            lines.append(f"🥇 <@{uid}> — {cnt} défenses")
         elif i == 1:
-            lines.append(f"🥈 <@{uid}> : {cnt} défenses")
+            lines.append(f"🥈 <@{uid}> — {cnt} défenses")
         elif i == 2:
-            lines.append(f"🥉 <@{uid}> : {cnt} défenses")
+            lines.append(f"🥉 <@{uid}> — {cnt} défenses")
         else:
-            lines.append(f"• <@{uid}> : {cnt} défenses")
+            lines.append(f"• <@{uid}> — {cnt} défenses")
     return "\n".join(lines) if lines else "_Aucun défenseur encore_"
 
+
 def fmt_stats_block(att: int, w: int, l: int, inc: int) -> str:
-    ratio = f"{(w/att*100):.1f}%" if att else "0%"
     return (
-        f"\n"
         f"⚔️ Attaques : {att}\n"
         f"🏆 Victoires : {w}\n"
         f"❌ Défaites : {l}\n"
-        f"😡 Incomplet : {inc}\n"
-        f"📊 Ratio victoire : {ratio}\n"
+        f"😡 Incomplètes : {inc}"
     )
+
 
 def separator_field() -> tuple[str, str]:
     return ("──────────", "\u200b")
+
 
 # --------------------------------------------------
 # Mise à jour des leaderboards
@@ -58,77 +59,103 @@ async def update_leaderboards(bot: commands.Bot, guild: discord.Guild):
     if channel is None or not isinstance(channel, discord.TextChannel):
         return
 
-    # ---------- Leaderboard Défense ----------
-    def_post = get_leaderboard_post(guild.id, "defense")
+    # ===============================
+    # 1️⃣ STATISTIQUES GÉNÉRALES
+    # ===============================
+    stats_post = get_leaderboard_post(guild.id, "stats_general")
+    if stats_post:
+        try:
+            msg_stats = await channel.fetch_message(stats_post[1])
+        except discord.NotFound:
+            msg_stats = await channel.send("📊 **Statistiques générales**")
+            set_leaderboard_post(guild.id, channel.id, msg_stats.id, "stats_general")
+    else:
+        msg_stats = await channel.send("📊 **Statistiques générales**")
+        set_leaderboard_post(guild.id, channel.id, msg_stats.id, "stats_general")
+
+    w_all, l_all, inc_all, att_all = agg_totals_all(guild.id)
+    embed_stats = discord.Embed(title="📊 Statistiques générales", color=discord.Color.blue())
+    embed_stats.add_field(
+        name="📊 Statistiques Alliance",
+        value=fmt_stats_block(att_all, w_all, l_all, inc_all),
+        inline=False,
+    )
+
+    name, value = separator_field()
+    embed_stats.add_field(name=name, value=value, inline=False)
+
+    teams = [t for t in get_teams(guild.id) if int(t["team_id"]) != 8]
+    for t in teams:
+        tid = int(t["team_id"])
+        w, l, inc, att = agg_totals_by_team(guild.id, tid)
+        emoji = TEAM_EMOJIS.get(tid)
+        emoji_str = f"{emoji} " if emoji else ""
+        label = t["name"]
+        if label.lower() == "hagratime":
+            label = "HagraTime"
+        embed_stats.add_field(
+            name=f"{emoji_str}**{label}**",
+            value=fmt_stats_block(att, w, l, inc),
+            inline=False,
+        )
+
+    await msg_stats.edit(embed=embed_stats)
+
+    # ===============================
+    # 2️⃣ LEADERBOARD JOUEURS
+    # ===============================
+    def_post = get_leaderboard_post(guild.id, "defense_players")
     if def_post:
         try:
             msg_def = await channel.fetch_message(def_post[1])
         except discord.NotFound:
-            msg_def = await channel.send("📊 **Leaderboard Défense**")
-            set_leaderboard_post(guild.id, channel.id, msg_def.id, "defense")
+            msg_def = await channel.send("🏆 **Leaderboard Joueurs**")
+            set_leaderboard_post(guild.id, channel.id, msg_def.id, "defense_players")
     else:
-        msg_def = await channel.send("📊 **Leaderboard Défense**")
-        set_leaderboard_post(guild.id, channel.id, msg_def.id, "defense")
+        msg_def = await channel.send("🏆 **Leaderboard Joueurs**")
+        set_leaderboard_post(guild.id, channel.id, msg_def.id, "defense_players")
 
-    top_def = get_leaderboard_totals(guild.id, "defense", limit=15)
+    top_def = get_leaderboard_totals(guild.id, "defense", limit=40)
     top_block = medals_top_defenders(top_def)
 
-    w_all, l_all, inc_all, att_all = agg_totals_all(guild.id)
-
-    embed_def = discord.Embed(title="📊 Leaderboard Défense", color=discord.Color.blue())
-    embed_def.add_field(name="**🏆 Top défenseurs**", value=top_block, inline=False)
-
-    name, value = separator_field()
-    embed_def.add_field(name=name, value=value, inline=False)
-
-    embed_def.add_field(name="**📌 Stats globales**", value=fmt_stats_block(att_all, w_all, l_all, inc_all), inline=False)
-
-    name, value = separator_field()
-    embed_def.add_field(name=name, value=value, inline=False)
-
-    # Stats par équipe dynamiques (ordre = order_index de team_config)
-    teams = get_teams(guild.id)
-    for t in teams:
-        tid = int(t["team_id"])
-        w, l, inc, att = agg_totals_by_team(guild.id, tid)
-        embed_def.add_field(name=f"**📌 {t['name']}**", value=fmt_stats_block(att, w, l, inc), inline=True)
-
-    # ligne blanche pour forcer le saut si nombre impair
-    embed_def.add_field(name="\u200b", value="\u200b", inline=False)
-
+    embed_def = discord.Embed(title="🏆 Leaderboard Joueurs", color=discord.Color.gold())
+    embed_def.add_field(name="**Top Défenseurs**", value=top_block, inline=False)
     await msg_def.edit(embed=embed_def)
 
-    # ---------- Leaderboard Pingeurs ----------
+    # ===============================
+    # 3️⃣ LEADERBOARD PINGEURS
+    # ===============================
     ping_post = get_leaderboard_post(guild.id, "pingeur")
     if ping_post:
         try:
             msg_ping = await channel.fetch_message(ping_post[1])
         except discord.NotFound:
-            msg_ping = await channel.send("📊 **Leaderboard Pingeurs**")
+            msg_ping = await channel.send("🛎️ **Leaderboard Pingeurs**")
             set_leaderboard_post(guild.id, channel.id, msg_ping.id, "pingeur")
     else:
-        msg_ping = await channel.send("📊 **Leaderboard Pingeurs**")
+        msg_ping = await channel.send("🛎️ **Leaderboard Pingeurs**")
         set_leaderboard_post(guild.id, channel.id, msg_ping.id, "pingeur")
 
-    top_ping = get_leaderboard_totals(guild.id, "pingeur", limit=100)
+    top_ping = get_leaderboard_totals(guild.id, "pingeur", limit=40)
     ping_lines = []
     for i, (uid, cnt) in enumerate(top_ping):
         if i == 0:
-            ping_lines.append(f"🥇 <@{uid}> : {cnt} pings")
+            ping_lines.append(f"🥇 <@{uid}> — {cnt} pings")
         elif i == 1:
-            ping_lines.append(f"🥈 <@{uid}> : {cnt} pings")
+            ping_lines.append(f"🥈 <@{uid}> — {cnt} pings")
         elif i == 2:
-            ping_lines.append(f"🥉 <@{uid}> : {cnt} pings")
+            ping_lines.append(f"🥉 <@{uid}> — {cnt} pings")
         else:
-            ping_lines.append(f"• <@{uid}> : {cnt} pings")
+            ping_lines.append(f"• <@{uid}> — {cnt} pings")
     ping_block = "\n".join(ping_lines) if ping_lines else "_Aucun pingeur encore_"
 
-    embed_ping = discord.Embed(title="📊 Leaderboard Pingeurs", color=discord.Color.gold())
-    embed_ping.add_field(name="**🏅 Top pingeurs**", value=ping_block, inline=False)
+    embed_ping = discord.Embed(title="🛎️ Leaderboard Pingeurs", color=discord.Color.gold())
+    embed_ping.add_field(name="**Top Pingeurs**", value=ping_block, inline=False)
     await msg_ping.edit(embed=embed_ping)
 
+
 # --------------------------------------------------
-# Cog + Commandes d'ajustement (avec autocomplétion)
+# Cog + commandes d’ajustement (inchangées)
 # --------------------------------------------------
 PLAYER_COUNTER_CHOICES = ["defense", "pingeur", "win", "loss"]
 TEAM_COUNTER_CHOICES = ["attacks", "wins", "losses", "incomplete"]
@@ -137,7 +164,6 @@ class LeaderboardCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
 
-    # ---------- Helpers permissions ----------
     def _is_admin(self, interaction: discord.Interaction) -> bool:
         cfg = get_guild_config(interaction.guild.id) if interaction.guild else None
         if not cfg:
@@ -148,7 +174,6 @@ class LeaderboardCog(commands.Cog):
         member = interaction.user if isinstance(interaction.user, discord.Member) else None
         return bool(member and any(r.id == admin_role_id for r in member.roles))
 
-    # ---------- Autocomplétion Team ----------
     async def _team_choices(self, interaction: discord.Interaction, current: str):
         choices: list[app_commands.Choice[int]] = []
         if not interaction.guild:
@@ -157,6 +182,8 @@ class LeaderboardCog(commands.Cog):
         for t in get_teams(interaction.guild.id):
             label = str(t["name"])
             tid = int(t["team_id"])
+            if tid == 8:
+                continue
             if not q or q in label.lower():
                 choices.append(app_commands.Choice(name=label, value=tid))
             if len(choices) >= 25:
@@ -168,7 +195,7 @@ class LeaderboardCog(commands.Cog):
     @app_commands.describe(
         member="Joueur à corriger",
         counter="Type de compteur : defense, pingeur, win, loss",
-        amount="Valeur à ajouter (positif) ou retirer (négatif), ex: -3, 2"
+        amount="Valeur à ajouter (positif) ou retirer (négatif)"
     )
     @app_commands.choices(
         counter=[app_commands.Choice(name=c, value=c) for c in PLAYER_COUNTER_CHOICES]
@@ -203,7 +230,7 @@ class LeaderboardCog(commands.Cog):
     @app_commands.describe(
         team="Nom de l’équipe (autocomplétion)",
         counter="Type : attacks, wins, losses, incomplete",
-        amount="Valeur à ajouter (positif) ou retirer (négatif), ex: -4, 3"
+        amount="Valeur à ajouter (positif) ou retirer (négatif)"
     )
     @app_commands.choices(
         counter=[app_commands.Choice(name=c, value=c) for c in TEAM_COUNTER_CHOICES]
@@ -221,10 +248,7 @@ class LeaderboardCog(commands.Cog):
 
         scope = f"team:{int(team)}"
         current_val = get_aggregate(interaction.guild.id, scope, counter.value)
-        new_val = current_val + amount
-        if new_val < 0:
-            new_val = 0
-
+        new_val = max(0, current_val + amount)
         set_aggregate(interaction.guild.id, scope, counter.value, new_val)
 
         await update_leaderboards(self.bot, interaction.guild)
@@ -232,7 +256,7 @@ class LeaderboardCog(commands.Cog):
         teams = {int(t["team_id"]): str(t["name"]) for t in get_teams(interaction.guild.id)}
         team_name = teams.get(int(team), f"Team {team}")
         await interaction.response.send_message(
-            f"✅ `{counter.value}` ajusté de **{sign}{amount}** pour **{team_name}**. (nouvelle valeur base = {new_val})",
+            f"✅ `{counter.value}` ajusté de **{sign}{amount}** pour **{team_name}** (nouvelle valeur : {new_val}).",
             ephemeral=False
         )
 
@@ -244,7 +268,7 @@ class LeaderboardCog(commands.Cog):
     @app_commands.command(name="adjust-global", description="Corriger manuellement un compteur global (admin).")
     @app_commands.describe(
         counter="Type global : attacks, wins, losses, incomplete",
-        amount="Valeur à ajouter (positif) ou retirer (négatif), ex: -2, 5"
+        amount="Valeur à ajouter (positif) ou retirer (négatif)"
     )
     @app_commands.choices(
         counter=[app_commands.Choice(name=c, value=c) for c in ["attacks", "wins", "losses", "incomplete"]]
@@ -261,19 +285,16 @@ class LeaderboardCog(commands.Cog):
 
         scope = "global"
         current_val = get_aggregate(interaction.guild.id, scope, counter.value)
-        new_val = current_val + amount
-        if new_val < 0:
-            new_val = 0
-
+        new_val = max(0, current_val + amount)
         set_aggregate(interaction.guild.id, scope, counter.value, new_val)
 
         await update_leaderboards(self.bot, interaction.guild)
         sign = "+" if amount >= 0 else ""
         await interaction.response.send_message(
-            f"✅ Global `{counter.value}` ajusté de **{sign}{amount}**. (nouvelle valeur base = {new_val})",
+            f"✅ Global `{counter.value}` ajusté de **{sign}{amount}** (nouvelle valeur : {new_val}).",
             ephemeral=False
         )
 
-# --------------------------------------------------
+
 async def setup(bot: commands.Bot):
     await bot.add_cog(LeaderboardCog(bot))
