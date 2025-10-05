@@ -1,59 +1,26 @@
 # cogs/attaque.py
 from typing import Optional, List, Tuple
-import re
 import discord
 from discord.ext import commands
 from discord import app_commands
 
-from storage import insert_attack_report
+from storage import (
+    insert_attack_report,
+    get_attack_report_by_message,
+    get_attack_report_coops,
+    decr_attack_user,
+    decr_attack_target,
+    remove_attack_report,
+)
 from cogs.leaderboard import update_leaderboards
 
 # Configuration
-MAX_COOPS = 5
 MAX_IMAGES = 3
 ALLOWED_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif")
 
-MENTION_RE = re.compile(r"<@!?(\d+)>")
-
-def _parse_coops(raw: Optional[str], guild: discord.Guild) -> Tuple[List[str], List[int]]:
-    """
-    Transforme une chaîne CSV (mentions/IDs/texte) en:
-      - liste de mentions (str) pour affichage,
-      - liste d'IDs (int) pour les compteurs.
-    On garde max MAX_COOPS.
-    """
-    if not raw:
-        return [], []
-    mentions: List[str] = []
-    ids: List[int] = []
-    parts = [p.strip() for p in raw.split(",") if p.strip()]
-    for p in parts:
-        if len(ids) >= MAX_COOPS:
-            break
-        # <@123> / <@!123>
-        m = MENTION_RE.fullmatch(p)
-        if m:
-            uid = int(m.group(1))
-            mentions.append(f"<@{uid}>")
-            ids.append(uid)
-            continue
-        # ID brut
-        if p.isdigit():
-            try:
-                uid = int(p)
-                _ = guild.get_member(uid) or None
-                mentions.append(f"<@{uid}>")
-                ids.append(uid)
-                continue
-            except Exception:
-                pass
-        # fallback: texte libre (affichage uniquement)
-        mentions.append(p)
-    return mentions[:MAX_COOPS], ids[:MAX_COOPS]
-
 
 class AttaqueCog(commands.Cog):
-    """Commande /attaque : coéquipiers (CSV opt), cible, et jusqu'à 3 screenshots attachés à la commande."""
+    """Commande /attaque : coéquipiers (jusqu'à 3 membres), cible, et jusqu'à 3 screenshots attachés à la commande."""
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -63,18 +30,22 @@ class AttaqueCog(commands.Cog):
         description="Déclarer une attaque (coéquipiers, guilde/alliance attaquée, et 1–3 screens).",
     )
     @app_commands.describe(
-        coequipiers="(optionnel) mentions/IDs séparés par des virgules : ex. '@A,@B,123' — max 5",
         cible="Nom de la guilde ou alliance attaquée",
         screenshot_1="Capture principale (image) — obligatoire",
         screenshot_2="Capture secondaire (image) — optionnel",
         screenshot_3="Capture tertiaire (image) — optionnel",
+        coequipier1="Coéquipier 1 (optionnel)",
+        coequipier2="Coéquipier 2 (optionnel)",
+        coequipier3="Coéquipier 3 (optionnel)",
     )
     async def attaque(
         self,
         interaction: discord.Interaction,
         cible: str,
         screenshot_1: discord.Attachment,
-        coequipiers: Optional[str] = None,
+        coequipier1: Optional[discord.Member] = None,
+        coequipier2: Optional[discord.Member] = None,
+        coequipier3: Optional[discord.Member] = None,
         screenshot_2: Optional[discord.Attachment] = None,
         screenshot_3: Optional[discord.Attachment] = None,
     ):
@@ -87,8 +58,14 @@ class AttaqueCog(commands.Cog):
 
         await interaction.response.defer(ephemeral=False)
 
-        # Coéquipiers (affichage + IDs pour compteurs)
-        coop_mentions, coop_ids = _parse_coops(coequipiers, interaction.guild)
+        # Coéquipiers (jusqu'à 3, sans doublons, exclure l'auteur s'il est re-sélectionné)
+        coop_members: List[discord.Member] = []
+        for m in (coequipier1, coequipier2, coequipier3):
+            if m and m.id != interaction.user.id and m not in coop_members:
+                coop_members.append(m)
+
+        coop_ids: List[int] = [m.id for m in coop_members]
+        coop_mentions: List[str] = [m.mention for m in coop_members]
 
         # Collect attachments
         attachments: List[discord.Attachment] = []
@@ -190,6 +167,36 @@ class AttaqueCog(commands.Cog):
             )
 
         await interaction.followup.send("✅ Alerte publiée.", ephemeral=True)
+
+    # --------- Suppression d'un message d'attaque : décrémentation + cleanup + MAJ ----------
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
+        if payload.guild_id is None:
+            return
+        # Cherche un rapport d'attaque pour ce message
+        rep = get_attack_report_by_message(payload.guild_id, payload.message_id)
+        if not rep:
+            return
+        report_id, author_id, target = rep
+
+        # Décrémenter les compteurs
+        if author_id:
+            decr_attack_user(payload.guild_id, author_id)
+        for uid in get_attack_report_coops(report_id):
+            decr_attack_user(payload.guild_id, uid)
+        if target:
+            decr_attack_target(payload.guild_id, target)
+
+        # Supprimer les enregistrements
+        remove_attack_report(report_id)
+
+        # Update leaderboards
+        guild = self.bot.get_guild(payload.guild_id)
+        if guild is not None:
+            try:
+                await update_leaderboards(self.bot, guild)
+            except Exception:
+                pass
 
 
 async def setup(bot: commands.Bot):
