@@ -18,10 +18,14 @@ from storage import (
     get_teams,
     get_wins_by_user,
     get_losses_by_user,
+    # --- Attaques ---
+    get_attacks_by_user_all,
+    get_attacks_by_target_all,
+    seed_attack_user_totals,
+    seed_attack_target_totals,
 )
 
 def paris_now_iso() -> str:
-    # ISO local (Paris via tz système) sans microsecondes
     return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
 
 class SnapshotsCog(commands.Cog):
@@ -70,8 +74,12 @@ class SnapshotsCog(commands.Cog):
         wins_by_user    = get_wins_by_user(guild.id)
         losses_by_user  = get_losses_by_user(guild.id)
 
+        # --- Attaques ---
+        attacks_by_user   = get_attacks_by_user_all(guild.id)
+        attacks_by_target = get_attacks_by_target_all(guild.id)
+
         payload = {
-            "schema_version": 4,
+            "schema_version": 5,
             "guild_id": guild.id,
             "generated_at": paris_now_iso(),
             "global": {"attacks": att_all, "wins": w_all, "losses": l_all, "incomplete": inc_all},
@@ -81,9 +89,11 @@ class SnapshotsCog(commands.Cog):
             "ping_by_user": ping_by_user,
             "wins_by_user": wins_by_user,
             "losses_by_user": losses_by_user,
+            # nouveaux blocs
+            "attacks_by_user": attacks_by_user,
+            "attacks_by_target": attacks_by_target,
         }
 
-        # Envoi sous forme de fichier .json
         json_str = json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
         file_buf = io.BytesIO(json_str.encode("utf-8"))
         safe_ts = payload["generated_at"].replace(":", "-")
@@ -132,7 +142,7 @@ class SnapshotsCog(commands.Cog):
                 if latest_payload:
                     break
 
-        # 2) Ancien format texte
+        # 2) Ancien format texte (compat)
         if latest_payload is None:
             async for m in channel.history(limit=100):
                 if m.author.id != self.bot.user.id or not m.content:
@@ -167,7 +177,7 @@ class SnapshotsCog(commands.Cog):
             # Charger baseline
             seed_aggregates_dynamic(guild.id, global_tot, team_totals, hourly)
 
-            # Seed leaderboards
+            # Seed leaderboards classiques
             def_tot = {int(k): int(v) for k, v in (latest_payload.get("defense_by_user", {}) or {}).items()}
             ping_tot = {int(k): int(v) for k, v in (latest_payload.get("ping_by_user", {}) or {}).items()}
             wins_tot = {int(k): int(v) for k, v in (latest_payload.get("wins_by_user", {}) or {}).items()}
@@ -176,6 +186,12 @@ class SnapshotsCog(commands.Cog):
             seed_leaderboard_totals(guild.id, "pingeur", ping_tot)
             seed_leaderboard_totals(guild.id, "win", wins_tot)
             seed_leaderboard_totals(guild.id, "loss", loss_tot)
+
+            # Seed attaques (nouveau)
+            atk_user = {int(k): int(v) for k, v in (latest_payload.get("attacks_by_user", {}) or {}).items()}
+            atk_tgt  = {str(k): int(v) for k, v in (latest_payload.get("attacks_by_target", {}) or {}).items()}
+            seed_attack_user_totals(guild.id, atk_user)
+            seed_attack_target_totals(guild.id, atk_tgt)
         else:
             clear_baseline(guild.id)
 
