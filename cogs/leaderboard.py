@@ -15,7 +15,6 @@ from storage import (
     set_aggregate,
     get_aggregate,
 )
-from cogs.alerts import TEAM_EMOJIS
 
 # --------------------------------------------------
 # Fonctions utilitaires
@@ -51,6 +50,7 @@ def separator_field() -> tuple[str, str]:
 # Mise à jour des leaderboards
 # --------------------------------------------------
 async def update_leaderboards(bot: commands.Bot, guild: discord.Guild):
+    from cogs.alerts import TEAM_EMOJIS
     cfg = get_guild_config(guild.id)
     if not cfg:
         return
