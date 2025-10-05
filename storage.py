@@ -119,6 +119,40 @@ def create_db():
         )
     """)
 
+    # ---------- Nouvelles tables pour /attaque ----------
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS attack_reports(
+            report_id  INTEGER PRIMARY KEY AUTOINCREMENT,
+            guild_id   INTEGER NOT NULL,
+            message_id INTEGER NOT NULL,
+            author_id  INTEGER NOT NULL,
+            target     TEXT,
+            created_ts INTEGER NOT NULL
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS attack_report_coops(
+            report_id INTEGER NOT NULL,
+            user_id   INTEGER NOT NULL,
+            PRIMARY KEY (report_id, user_id)
+        )
+    """)
+
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS attack_target_totals(
+            guild_id INTEGER NOT NULL,
+            target   TEXT NOT NULL,
+            count    INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (guild_id, target)
+        )
+    """)
+
+    # Index utiles pour /attaque
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_attack_reports_guild_ts ON attack_reports(guild_id, created_ts)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_attack_coops_report ON attack_report_coops(report_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_attack_target_totals_guild_count ON attack_target_totals(guild_id, count)")
+
     # Migrations légères
     try:
         if not _column_exists(con, "messages", "team"):
@@ -397,7 +431,6 @@ def _set_aggregate_txn(con: sqlite3.Connection, guild_id: int, scope: str, key: 
 
 @with_db
 def set_aggregate(con: sqlite3.Connection, guild_id: int, scope: str, key: str, value: int):
-    # Version publique (ouvre sa propre connexion)
     _set_aggregate_txn(con, guild_id, scope, key, value)
 
 @with_db
@@ -422,8 +455,6 @@ def seed_aggregates_dynamic(
       - global
       - team:{team_id}
       - hourly
-
-    NOTE: on écrit tout dans la même transaction/connexion (pas d'appel à set_aggregate()).
     """
     # purge baseline
     con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
@@ -432,7 +463,7 @@ def seed_aggregates_dynamic(
     for key in ("attacks", "wins", "losses", "incomplete"):
         _set_aggregate_txn(con, guild_id, "global", key, int((global_tot or {}).get(key, 0)))
 
-    # Teams (team:{id})
+    # Teams
     for team_id, vals in (team_totals or {}).items():
         scope = f"team:{int(team_id)}"
         for key, val in (vals or {}).items():
@@ -552,7 +583,6 @@ def hourly_split_all(con: sqlite3.Connection, guild_id: int) -> Tuple[int, int, 
     ]
     return tuple(base_counts[i] + live_counts[i] for i in range(4))
 
-
 # ---------- Stats helpers pour snapshot ----------
 @with_db
 def get_wins_by_user(con: sqlite3.Connection, guild_id: int) -> Dict[int, int]:
@@ -656,4 +686,146 @@ def get_player_hourly_counts(con: sqlite3.Connection, guild_id: int, user_id: in
         else:
             counts[3] += 1
     return tuple(counts)
-    
+
+
+# ==================================================
+# ===============  ATTACKES  (/attaque)  ===========
+# ==================================================
+
+@with_db
+def insert_attack_report(
+    con: sqlite3.Connection,
+    guild_id: int,
+    message_id: int,
+    author_id: int,
+    coops: List[int],
+    target: Optional[str],
+    created_ts: Optional[int] = None,
+) -> int:
+    """
+    Insère un rapport d'attaque + incrémente les compteurs :
+      - leaderboard_totals(type='attack') pour auteur + coéquipiers valides
+      - attack_target_totals pour la cible (si non vide)
+    Retourne report_id.
+    """
+    ts = int(created_ts or utcnow_i())
+    tgt = (target or "").strip()
+
+    cur = con.cursor()
+    cur.execute("""
+        INSERT INTO attack_reports(guild_id, message_id, author_id, target, created_ts)
+        VALUES (?,?,?,?,?)
+    """, (guild_id, message_id, author_id, tgt if tgt else None, ts))
+    report_id = int(cur.lastrowid)
+
+    # coéquipiers (uniques)
+    seen = set()
+    for uid in (coops or []):
+        try:
+            uid_i = int(uid)
+        except Exception:
+            continue
+        if uid_i in seen:
+            continue
+        seen.add(uid_i)
+        cur.execute("""
+            INSERT OR IGNORE INTO attack_report_coops(report_id, user_id)
+            VALUES (?,?)
+        """, (report_id, uid_i))
+
+    # incrément auteur + coops
+    con.execute("""
+        INSERT INTO leaderboard_totals(guild_id, type, user_id, count)
+        VALUES (?,?,?,1)
+        ON CONFLICT(guild_id, type, user_id) DO UPDATE SET count=count+1
+    """, (guild_id, "attack", int(author_id)))
+    for uid in seen:
+        con.execute("""
+            INSERT INTO leaderboard_totals(guild_id, type, user_id, count)
+            VALUES (?,?,?,1)
+            ON CONFLICT(guild_id, type, user_id) DO UPDATE SET count=count+1
+        """, (guild_id, "attack", int(uid)))
+
+    # incrément cible
+    if tgt:
+        con.execute("""
+            INSERT INTO attack_target_totals(guild_id, target, count)
+            VALUES (?,?,1)
+            ON CONFLICT(guild_id, target) DO UPDATE SET count=count+1
+        """, (guild_id, tgt))
+
+    return report_id
+
+
+# ---------- Lecture / affichage Leaderboard Attaques ----------
+@with_db
+def get_attack_top_users(con: sqlite3.Connection, guild_id: int, limit: int = 30) -> List[Tuple[int, int]]:
+    rows = con.execute("""
+        SELECT user_id, count
+        FROM leaderboard_totals
+        WHERE guild_id=? AND type='attack'
+        ORDER BY count DESC
+        LIMIT ?
+    """, (guild_id, limit)).fetchall()
+    return [(int(r["user_id"]), int(r["count"])) for r in rows]
+
+@with_db
+def get_attack_top_targets(con: sqlite3.Connection, guild_id: int, limit: int = 30) -> List[Tuple[str, int]]:
+    rows = con.execute("""
+        SELECT target, count
+        FROM attack_target_totals
+        WHERE guild_id=?
+        ORDER BY count DESC
+        LIMIT ?
+    """, (guild_id, limit)).fetchall()
+    return [(str(r["target"]), int(r["count"])) for r in rows]
+
+@with_db
+def get_attack_total_reports(con: sqlite3.Connection, guild_id: int) -> int:
+    row = con.execute("""
+        SELECT COUNT(*) AS c
+        FROM attack_reports
+        WHERE guild_id=?
+    """, (guild_id,)).fetchone()
+    return int(row["c"] or 0)
+
+# ---------- Dump complet pour snapshot ----------
+@with_db
+def get_attacks_by_user_all(con: sqlite3.Connection, guild_id: int) -> Dict[int, int]:
+    rows = con.execute("""
+        SELECT user_id, count
+        FROM leaderboard_totals
+        WHERE guild_id=? AND type='attack'
+        ORDER BY count DESC
+    """, (guild_id,)).fetchall()
+    return {int(r["user_id"]): int(r["count"]) for r in rows}
+
+@with_db
+def get_attacks_by_target_all(con: sqlite3.Connection, guild_id: int) -> Dict[str, int]:
+    rows = con.execute("""
+        SELECT target, count
+        FROM attack_target_totals
+        WHERE guild_id=?
+        ORDER BY count DESC
+    """, (guild_id,)).fetchall()
+    return {str(r["target"]): int(r["count"]) for r in rows}
+
+
+# ---------- Seed/restore pour snapshot ----------
+@with_db
+def seed_attack_user_totals(con: sqlite3.Connection, guild_id: int, totals: Dict[int, int]):
+    con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type='attack'", (guild_id,))
+    for uid, cnt in (totals or {}).items():
+        con.execute("""
+            INSERT INTO leaderboard_totals(guild_id, type, user_id, count)
+            VALUES (?,?,?,?)
+        """, (guild_id, "attack", int(uid), int(cnt)))
+
+@with_db
+def seed_attack_target_totals(con: sqlite3.Connection, guild_id: int, totals: Dict[str, int]):
+    con.execute("DELETE FROM attack_target_totals WHERE guild_id=?", (guild_id,))
+    for tgt, cnt in (totals or {}).items():
+        con.execute("""
+            INSERT INTO attack_target_totals(guild_id, target, count)
+            VALUES (?,?,?)
+        """, (guild_id, str(tgt), int(cnt)))
