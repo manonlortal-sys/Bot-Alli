@@ -1,13 +1,55 @@
 # cogs/attaque.py
-from typing import Optional, List
+from typing import Optional, List, Tuple
+import re
 import discord
 from discord.ext import commands
 from discord import app_commands
+
+from storage import insert_attack_report
+from cogs.leaderboard import update_leaderboards
 
 # Configuration
 MAX_COOPS = 5
 MAX_IMAGES = 3
 ALLOWED_EXT = (".png", ".jpg", ".jpeg", ".webp", ".gif")
+
+MENTION_RE = re.compile(r"<@!?(\d+)>")
+
+def _parse_coops(raw: Optional[str], guild: discord.Guild) -> Tuple[List[str], List[int]]:
+    """
+    Transforme une chaîne CSV (mentions/IDs/texte) en:
+      - liste de mentions (str) pour affichage,
+      - liste d'IDs (int) pour les compteurs.
+    On garde max MAX_COOPS.
+    """
+    if not raw:
+        return [], []
+    mentions: List[str] = []
+    ids: List[int] = []
+    parts = [p.strip() for p in raw.split(",") if p.strip()]
+    for p in parts:
+        if len(ids) >= MAX_COOPS:
+            break
+        # <@123> / <@!123>
+        m = MENTION_RE.fullmatch(p)
+        if m:
+            uid = int(m.group(1))
+            mentions.append(f"<@{uid}>")
+            ids.append(uid)
+            continue
+        # ID brut
+        if p.isdigit():
+            try:
+                uid = int(p)
+                _ = guild.get_member(uid) or None
+                mentions.append(f"<@{uid}>")
+                ids.append(uid)
+                continue
+            except Exception:
+                pass
+        # fallback: texte libre (affichage uniquement)
+        mentions.append(p)
+    return mentions[:MAX_COOPS], ids[:MAX_COOPS]
 
 
 class AttaqueCog(commands.Cog):
@@ -21,7 +63,7 @@ class AttaqueCog(commands.Cog):
         description="Déclarer une attaque (coéquipiers, guilde/alliance attaquée, et 1–3 screens).",
     )
     @app_commands.describe(
-        coequipiers="(optionnel) mentions séparées par des virgules : ex. '@A,@B' — max 5",
+        coequipiers="(optionnel) mentions/IDs séparés par des virgules : ex. '@A,@B,123' — max 5",
         cible="Nom de la guilde ou alliance attaquée",
         screenshot_1="Capture principale (image) — obligatoire",
         screenshot_2="Capture secondaire (image) — optionnel",
@@ -37,49 +79,18 @@ class AttaqueCog(commands.Cog):
         screenshot_3: Optional[discord.Attachment] = None,
     ):
         """
-        Flow :
-         - l'utilisateur fournit la commande avec pièce(s) jointe(s) (attachments).
-         - le bot valide les images, construit un embed et l'envoie dans le même canal.
-        Notes :
-         - Discord UI permet d'attacher des fichiers directement lors de l'exécution de la commande.
-         - coequipiers est une chaîne optionnelle (CSV) car les slash options ne gèrent pas
-           nativement un "multi user" paramètre dans toutes les versions.
+        Publie l'alerte dans le même canal + enregistre le rapport pour le leaderboard Attaques.
         """
-
-        # Vérifications basiques
         if interaction.guild is None or interaction.channel is None:
             await interaction.response.send_message("Commande utilisable uniquement dans un serveur.", ephemeral=True)
             return
 
-        # Defer (si le traitement peut prendre >3s)
         await interaction.response.defer(ephemeral=False)
 
-        # Parse coequipiers (CSV de mentions ou d'IDs) -> list of mention strings
-        coop_mentions: List[str] = []
-        if coequipiers:
-            # split on comma, strip whitespace
-            parts = [p.strip() for p in coequipiers.split(",") if p.strip()]
-            for p in parts[:MAX_COOPS]:
-                # accept either mention form <@id> or plain names; keep raw if ambiguous
-                # try to convert to a Member mention if possible
-                if p.startswith("<@") and p.endswith(">"):
-                    coop_mentions.append(p)
-                else:
-                    # try resolve as member by name/id
-                    member = None
-                    try:
-                        # try ID
-                        if p.isdigit():
-                            member = await interaction.guild.fetch_member(int(p))
-                    except Exception:
-                        member = None
-                    if member:
-                        coop_mentions.append(member.mention)
-                    else:
-                        # fallback: treat as plain text (will be shown as-is)
-                        coop_mentions.append(p)
+        # Coéquipiers (affichage + IDs pour compteurs)
+        coop_mentions, coop_ids = _parse_coops(coequipiers, interaction.guild)
 
-        # Collect attachments in order passed (1 is required)
+        # Collect attachments
         attachments: List[discord.Attachment] = []
         if screenshot_1:
             attachments.append(screenshot_1)
@@ -88,35 +99,31 @@ class AttaqueCog(commands.Cog):
         if screenshot_3:
             attachments.append(screenshot_3)
 
-        # Validate attachments: keep only images, up to MAX_IMAGES
+        # Validate attachments (images)
         image_urls: List[str] = []
         invalid_count = 0
         for att in attachments:
             if len(image_urls) >= MAX_IMAGES:
                 break
             ok = False
-            # prefer content_type check
             try:
                 ctype = (att.content_type or "").lower()
                 if ctype and ctype.startswith("image"):
                     ok = True
             except Exception:
                 ok = False
-            # fallback to filename ext
             if not ok:
                 fname = (att.filename or "").lower()
                 if any(fname.endswith(ext) for ext in ALLOWED_EXT):
                     ok = True
             if ok:
-                # Use att.url (Discord-hosted) — reliable
                 image_urls.append(att.url)
             else:
                 invalid_count += 1
 
-        # If first (required) is invalid or missing -> error
         if not image_urls:
             await interaction.followup.send(
-                "⚠️ Aucune capture valide fournie. Assure-toi d'attacher au moins une image (png/jpg/webp).",
+                "⚠️ Aucune capture valide fournie. Attache au moins une image (png/jpg/webp).",
                 ephemeral=True,
             )
             return
@@ -129,40 +136,59 @@ class AttaqueCog(commands.Cog):
             desc_lines.append(f"🧑‍🤝‍🧑 **Coéquipiers :** {', '.join(coop_mentions)}")
         else:
             desc_lines.append(f"🧑‍🤝‍🧑 **Coéquipiers :** —")
-        desc_lines.append(f"🏰 **Guilde/Alliance attaquée :** {cible}")
+        cible_text = (cible or "").strip() or "—"
+        desc_lines.append(f"🏰 **Guilde/Alliance attaquée :** {cible_text}")
         desc = "\n".join(desc_lines)
 
         embed = discord.Embed(title=title, description=desc, color=discord.Color.dark_red())
         embed.set_footer(text=f"Publié par {author.display_name}")
 
-        # Attach images to embed: first as embed image, others as links field
         try:
             embed.set_image(url=image_urls[0])
             if len(image_urls) > 1:
-                others_lines = []
-                for i, url in enumerate(image_urls[1:], start=2):
-                    others_lines.append(f"[Capture {i}]({url})")
-                embed.add_field(name="📷 Autres captures", value="\n".join(others_lines), inline=False)
+                others_lines = [f"[Capture {i}]({url})" for i, url in enumerate(image_urls[1:], start=2)]
+                val = "\n".join(others_lines)
+                if len(val) > 1024:
+                    val = val[:1019] + "…"
+                embed.add_field(name="📷 Autres captures", value=val, inline=False)
         except Exception:
-            # fallback: ignore images if embed.set_image fails
             pass
 
-        # If some attachments were invalid, inform the user (ephemeral)
-        if invalid_count > 0:
-            await interaction.followup.send(
-                f"⚠️ {invalid_count} fichier(s) ignoré(s) (format non-image). Les images valides ont été publiées.",
-                ephemeral=True,
-            )
-
-        # Send the embed in the same channel
+        # Publish message
         try:
-            await interaction.channel.send(embed=embed)
+            sent = await interaction.channel.send(embed=embed)
         except Exception as e:
-            # final fallback: notify author
             await interaction.followup.send(f"Erreur lors de l'envoi de l'alerte : {e}", ephemeral=True)
             return
 
-        # Final ephemeral confirmation
+        # Enregistrer le rapport d'attaque (compte auteur + coéquipiers; cible si non vide)
+        try:
+            created_ts = int(sent.created_at.timestamp())
+            target_for_db = (cible or "").strip()
+            insert_attack_report(
+                guild_id=interaction.guild.id,
+                message_id=sent.id,
+                author_id=author.id,
+                coops=coop_ids,              # seuls les IDs valides sont comptés
+                target=target_for_db if target_for_db else None,
+                created_ts=created_ts,
+            )
+        except Exception:
+            # on ne bloque pas la publication si l'insert échoue
+            pass
+
+        # MAJ des leaderboards (inclut le nouveau bloc Attaques)
+        try:
+            await update_leaderboards(self.bot, interaction.guild)
+        except Exception:
+            pass
+
+        if invalid_count > 0:
+            await interaction.followup.send(
+                f"⚠️ {invalid_count} fichier(s) ignoré(s) (format non-image).",
+                ephemeral=True,
+            )
+
         await interaction.followup.send("✅ Alerte publiée.", ephemeral=True)
 
 
