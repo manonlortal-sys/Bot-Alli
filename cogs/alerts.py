@@ -138,7 +138,7 @@ async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] 
 # ---------- Modal Attaquants ----------
 class AttackersModal(discord.ui.Modal, title="📝 Attaquants"):
     attackers_text = discord.ui.TextInput(
-        label="Guilde ou Alliance qui attaque ?",
+        label="Alliance/Guilde attaquante",
         placeholder="Ex: [BLA] Black Legion",
         required=True,
         max_length=120,
@@ -150,14 +150,18 @@ class AttackersModal(discord.ui.Modal, title="📝 Attaquants"):
         self.message_id = message_id
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Récupérer le message d'alerte
+        # Accusé silencieux pour éviter l'erreur côté client
+        try:
+            await interaction.response.defer()
+        except Exception:
+            pass
+
         guild = interaction.guild
         channel = guild.get_channel(interaction.channel_id) or guild.get_thread(interaction.channel_id)
         msg = await channel.fetch_message(self.message_id)
 
         current = _parse_attackers_from_embed(msg)
         if len(current) >= 3:
-            # max atteint -> ne rien faire (pas de réponse)
             return
 
         new_entry = str(self.attackers_text).strip()
@@ -167,7 +171,7 @@ class AttackersModal(discord.ui.Modal, title="📝 Attaquants"):
         updated = current + [new_entry]
         emb = await build_ping_embed(msg, attackers=updated[:3])
         await msg.edit(embed=emb)
-        # Aucune réponse éphémère demandée
+        # pas de followup, comportement voulu (aucun message de confirmation)
 
 
 # ---------- Views (ajout défenseurs) ----------
@@ -243,9 +247,6 @@ class AddDefendersButtonView(discord.ui.View):
 
     @discord.ui.button(label="Attaquants", style=discord.ButtonStyle.secondary, emoji="❓", custom_id="add_attackers")
     async def add_attackers(self, interaction: discord.Interaction, button: discord.ui.Button):
-        # Ouvrir le modal permettant d'ajouter le nom de l'alliance/guilde attaquante
-        channel = interaction.guild.get_channel(interaction.channel_id) or interaction.guild.get_thread(interaction.channel_id)
-        msg = await channel.fetch_message(self.message_id)
         await interaction.response.send_modal(AttackersModal(self.message_id))
 
 
