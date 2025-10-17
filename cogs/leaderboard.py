@@ -74,8 +74,12 @@ async def update_leaderboards(bot, guild):
         if team["name"].lower() == "prisme":
             continue
 
-        channel_id, message_id = get_leaderboard_post(guild.id, f"guild_{team['team_id']}")
-        emb = await build_guild_embed(bot, guild, team)
+        post = get_leaderboard_post(guild.id, f"guild_{team['team_id']}")
+if post:
+    channel_id, message_id = post
+else:
+    channel_id = message_id = None
+
 
         try:
             if message_id:
