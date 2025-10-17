@@ -23,7 +23,9 @@ from storage import (
     seed_attack_user_totals,
     seed_attack_target_totals,
     clear_baseline,
+    reset_leaderboard,
 )
+from cogs.leaderboard import update_leaderboards
 
 # ============================================================
 # =============== SNAPSHOTS COG ===============================
@@ -37,8 +39,7 @@ class SnapshotsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
         self._restored_once = False
-        self._hourly_task = None
-        self.weekly_reset_task.start()  # Démarrage de la tâche auto
+        self.weekly_reset_task.start()
 
     # ============================================================
     # =============== GÉNÉRATION SNAPSHOT =========================
@@ -107,4 +108,65 @@ class SnapshotsCog(commands.Cog):
             file=discord.File(file_buf, filename=filename)
         )
 
-    # =================================================
+    # ============================================================
+    # =============== RESET HEBDOMADAIRE =========================
+    # ============================================================
+
+    @tasks.loop(minutes=1)
+    async def weekly_reset_task(self):
+        """Vérifie chaque minute si on est lundi à 00h00 heure de Paris."""
+        now = datetime.now(ZoneInfo("Europe/Paris"))
+        if now.weekday() == 0 and now.hour == 0 and now.minute == 0:
+            print("🔁 Reset automatique des leaderboards (lundi 00h00)")
+            for guild in self.bot.guilds:
+                cfg = get_guild_config(guild.id)
+                if not cfg:
+                    continue
+                # Reset uniquement les compteurs hebdos (pas pingeur)
+                clear_baseline(guild.id)
+                reset_leaderboard(guild.id, "defense")
+                reset_leaderboard(guild.id, "win")
+                reset_leaderboard(guild.id, "loss")
+                await update_leaderboards(self.bot, guild)
+            await asyncio.sleep(60)
+
+    # ============================================================
+    # =============== COMMANDE MANUELLE ==========================
+    # ============================================================
+
+    @app_commands.command(name="leaderboard-reset", description="🔄 Réinitialise tous les leaderboards (sauf pingeurs).")
+    async def leaderboard_reset(self, interaction: discord.Interaction):
+        guild = interaction.guild
+        if not guild:
+            await interaction.response.send_message("❌ Commande à utiliser sur un serveur.", ephemeral=True)
+            return
+
+        await interaction.response.defer(thinking=True)
+
+        clear_baseline(guild.id)
+        reset_leaderboard(guild.id, "defense")
+        reset_leaderboard(guild.id, "win")
+        reset_leaderboard(guild.id, "loss")
+
+        await update_leaderboards(self.bot, guild)
+        await interaction.followup.send("✅ Tous les leaderboards ont été remis à zéro (sauf pingeurs).", ephemeral=False)
+
+    # ============================================================
+    # =============== RESTORE AUTO ===============================
+    # ============================================================
+
+    @commands.Cog.listener()
+    async def on_ready(self):
+        if self._restored_once:
+            return
+        self._restored_once = True
+
+        for guild in self.bot.guilds:
+            cfg = get_guild_config(guild.id)
+            if not cfg:
+                continue
+            await update_leaderboards(self.bot, guild)
+
+
+async def setup(bot: commands.Bot):
+    await bot.add_cog(SnapshotsCog(bot))
