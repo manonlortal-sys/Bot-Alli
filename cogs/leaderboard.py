@@ -75,10 +75,10 @@ async def update_leaderboards(bot, guild):
             continue
 
         post = get_leaderboard_post(guild.id, f"guild_{team['team_id']}")
-if post:
-    channel_id, message_id = post
-else:
-    channel_id = message_id = None
+        if post:
+            channel_id, message_id = post
+        else:
+            channel_id = message_id = None
 
 
         try:
