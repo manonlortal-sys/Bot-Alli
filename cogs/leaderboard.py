@@ -1,7 +1,7 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from discord import app_commands
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from storage import (
@@ -133,6 +133,7 @@ async def update_leaderboards(bot, guild):
 class LeaderboardCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
+        self.weekly_reset_task.start()  # 🚀 Démarre la tâche auto
 
     @app_commands.command(name="reset-leaderboards", description="Remet tous les leaderboards (sauf pingeur) à zéro et les met à jour.")
     @app_commands.checks.has_permissions(administrator=True)
@@ -146,6 +147,27 @@ class LeaderboardCog(commands.Cog):
         clear_baseline(guild.id)
         await update_leaderboards(self.bot, guild)
         await interaction.followup.send("✅ Tous les leaderboards ont été remis à zéro (sauf Pingeur).", ephemeral=True)
+
+    # ============================================================
+    # =============== RÉINITIALISATION AUTO ======================
+    # ============================================================
+
+    @tasks.loop(hours=1)
+    async def weekly_reset_task(self):
+        """Vérifie chaque heure si on est lundi 00h00 (heure de Paris)."""
+        now = datetime.now(ZoneInfo("Europe/Paris"))
+        if now.weekday() == 0 and now.hour == 0:  # Lundi minuit
+            for guild in self.bot.guilds:
+                try:
+                    clear_baseline(guild.id)
+                    await update_leaderboards(self.bot, guild)
+                    print(f"🔁 Leaderboards remis à zéro automatiquement pour {guild.name}")
+                except Exception as e:
+                    print(f"⚠️ Erreur reset auto {guild.name}: {e}")
+
+    @weekly_reset_task.before_loop
+    async def before_weekly_reset(self):
+        await self.bot.wait_until_ready()
 
 
 async def setup(bot: commands.Bot):
