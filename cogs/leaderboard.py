@@ -36,11 +36,11 @@ def medals_top_defenders(top: list[tuple[int, int]], guild: discord.Guild, team_
 
     return "\n".join(lines) if lines else "_Aucun défenseur enregistré_"
 
+
 async def build_guild_embed(bot, guild, team):
     """Construit un embed de leaderboard pour une guilde précise."""
     w, l, inc, att = agg_totals_by_team(guild.id, team["team_id"])
     top_def = get_leaderboard_totals(guild.id, "defense", limit=100)
-
     defenders_text = medals_top_defenders(top_def, guild, team["role_id"])
 
     emb = discord.Embed(
@@ -53,7 +53,26 @@ async def build_guild_embed(bot, guild, team):
     emb.add_field(name="😡 Défenses incomplètes", value=str(inc), inline=True)
     emb.add_field(name="🧙 Défenseurs", value=defenders_text, inline=False)
     emb.set_footer(text="Remis à zéro chaque lundi à 00h00 (heure de Paris)")
+    return emb
 
+
+async def build_pingeur_embed(guild):
+    """Construit le leaderboard global des pingeurs."""
+    top_ping = get_leaderboard_totals(guild.id, "pingeur", limit=20)
+    lines = []
+    for i, (uid, cnt) in enumerate(top_ping):
+        if i == 0:
+            lines.append(f"🥇 <@{uid}> — {cnt} pings")
+        elif i == 1:
+            lines.append(f"🥈 <@{uid}> — {cnt} pings")
+        elif i == 2:
+            lines.append(f"🥉 <@{uid}> — {cnt} pings")
+        else:
+            lines.append(f"• <@{uid}> — {cnt} pings")
+
+    text = "\n".join(lines) if lines else "_Aucun pingeur encore_"
+    emb = discord.Embed(title="🛎️ Leaderboard Pingeurs", color=discord.Color.blurple())
+    emb.add_field(name="**Top Pingeurs**", value=text, inline=False)
     return emb
 
 
@@ -67,6 +86,7 @@ async def update_leaderboards(bot, guild):
     if not lb_channel:
         return
 
+    # 🔹 Leaderboards de guildes
     teams = get_teams(guild.id)
     for team in teams:
         if team["name"].lower() == "prisme":
@@ -74,10 +94,7 @@ async def update_leaderboards(bot, guild):
 
         emb = await build_guild_embed(bot, guild, team)
         post = get_leaderboard_post(guild.id, f"guild_{team['team_id']}")
-        if post:
-            channel_id, message_id = post
-        else:
-            channel_id = message_id = None
+        channel_id, message_id = post if post else (None, None)
 
         try:
             if message_id:
@@ -92,6 +109,26 @@ async def update_leaderboards(bot, guild):
                 set_leaderboard_post(guild.id, lb_channel.id, msg.id, f"guild_{team['team_id']}")
             except Exception:
                 continue
+
+    # 🔹 Leaderboard PINGEUR global
+    emb_ping = await build_pingeur_embed(guild)
+    post_ping = get_leaderboard_post(guild.id, "pingeur")
+    channel_id, message_id = post_ping if post_ping else (None, None)
+
+    try:
+        if message_id:
+            msg = await lb_channel.fetch_message(message_id)
+            await msg.edit(embed=emb_ping)
+        else:
+            msg = await lb_channel.send(embed=emb_ping)
+            set_leaderboard_post(guild.id, lb_channel.id, msg.id, "pingeur")
+    except Exception:
+        try:
+            msg = await lb_channel.send(embed=emb_ping)
+            set_leaderboard_post(guild.id, lb_channel.id, msg.id, "pingeur")
+        except Exception:
+            pass
+
 
 class LeaderboardCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
@@ -108,7 +145,6 @@ class LeaderboardCog(commands.Cog):
         await interaction.response.defer(thinking=True)
         clear_baseline(guild.id)
         await update_leaderboards(self.bot, guild)
-
         await interaction.followup.send("✅ Tous les leaderboards ont été remis à zéro (sauf Pingeur).", ephemeral=True)
 
 
