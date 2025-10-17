@@ -854,3 +854,19 @@ def decr_attack_target(con: sqlite3.Connection, guild_id: int, target: str):
         DELETE FROM attack_target_totals
         WHERE guild_id=? AND target=? AND count<=0
     """, (guild_id, target))
+
+# ---------- Reset complet des leaderboards ----------
+@with_db
+def reset_all_leaderboards(con: sqlite3.Connection, guild_id: int, exclude: list[str] = []):
+    """Supprime toutes les données de leaderboard pour le serveur, sauf celles indiquées dans exclude."""
+    placeholders = ",".join("?" * len(exclude)) if exclude else None
+    if exclude:
+        con.execute(
+            f"DELETE FROM leaderboard_totals WHERE guild_id=? AND type NOT IN ({placeholders})",
+            (guild_id, *exclude),
+        )
+    else:
+        con.execute("DELETE FROM leaderboard_totals WHERE guild_id=?", (guild_id,))
+    # On peut aussi purger les agrégats pour repartir à zéro
+    con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
+
