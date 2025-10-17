@@ -129,12 +129,3 @@ class LeaderboardCog(commands.Cog):
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(LeaderboardCog(bot))
-
-
-# ============================================================
-# =========== EXPORT GLOBAL POUR SNAPSHOTS.PY ================
-# ============================================================
-
-async def update_leaderboards(bot, guild):
-    """Export global pour mise à jour externe."""
-    await update_leaderboards(bot, guild)
