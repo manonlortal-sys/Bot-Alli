@@ -45,10 +45,6 @@ TEAM_EMOJIS: dict[int, discord.PartialEmoji] = {
 ATTACKERS_PREFIX = "⚔️ Attaquants : "
 
 def _parse_attackers_from_embed(msg: discord.Message) -> List[str]:
-    """
-    Lit le champ "État du combat" du premier embed et retourne la liste des
-    lignes '⚔️ Attaquants : ...' (sans le préfixe). Limite à 3 éléments.
-    """
     attackers: List[str] = []
     if not msg.embeds:
         return attackers
@@ -81,7 +77,6 @@ async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] 
             lines.append(name)
     defenders_block = "• " + "\n• ".join(lines) if lines else "_Aucun défenseur pour le moment._"
 
-    # État via réactions
     reactions = {str(r.emoji): r for r in msg.reactions}
     win = EMOJI_VICTORY in reactions and reactions[EMOJI_VICTORY].count > 0
     loss = EMOJI_DEFEAT in reactions and reactions[EMOJI_DEFEAT].count > 0
@@ -103,14 +98,12 @@ async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] 
         if incomplete:
             etat += f"\n{EMOJI_INCOMP} Défense incomplète"
 
-    # Attaquants : si non fournis, on lit l'existant depuis l'embed
     if attackers is None:
         attackers = _parse_attackers_from_embed(msg)
     if attackers:
         for a in attackers[:3]:
             etat += f"\n{ATTACKERS_PREFIX}{a}"
 
-    # Titre dynamique par équipe
     team_id = get_message_team(msg.id)
     team_name = None
     if team_id is not None:
@@ -150,7 +143,6 @@ class AttackersModal(discord.ui.Modal, title="📝 Attaquants"):
         self.message_id = message_id
 
     async def on_submit(self, interaction: discord.Interaction):
-        # Accusé silencieux pour éviter l'erreur côté client
         try:
             await interaction.response.defer()
         except Exception:
@@ -171,7 +163,6 @@ class AttackersModal(discord.ui.Modal, title="📝 Attaquants"):
         updated = current + [new_entry]
         emb = await build_ping_embed(msg, attackers=updated[:3])
         await msg.edit(embed=emb)
-        # pas de followup, comportement voulu (aucun message de confirmation)
 
 
 # ---------- Views (ajout défenseurs) ----------
@@ -196,10 +187,6 @@ class AddDefendersSelectView(discord.ui.View):
     @discord.ui.button(label="Confirmer l'ajout", style=discord.ButtonStyle.success, emoji="✅")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
-
-        if interaction.user.id != self.claimer_id:
-            await interaction.followup.send("Action réservée au premier défenseur.", ephemeral=True)
-            return
 
         if not self.selected_users:
             await interaction.followup.send("Sélection vide.", ephemeral=True)
@@ -234,14 +221,27 @@ class AddDefendersButtonView(discord.ui.View):
 
     @discord.ui.button(label="Ajouter défenseurs", style=discord.ButtonStyle.primary, emoji="🛡️", custom_id="add_defenders")
     async def add_defenders(self, interaction: discord.Interaction, button: discord.ui.Button):
-        from storage import get_first_defender
-        first_id = get_first_defender(self.message_id)
-        if first_id is None or interaction.user.id != first_id:
-            await interaction.response.send_message("Bouton réservé au premier défenseur (premier 👍).", ephemeral=True)
+        channel = interaction.guild.get_channel(interaction.channel_id) or interaction.guild.get_thread(interaction.channel_id)
+        msg = await channel.fetch_message(self.message_id)
+
+        thumbs_up = None
+        for reaction in msg.reactions:
+            if str(reaction.emoji) == "👍":
+                thumbs_up = reaction
+                break
+
+        if not thumbs_up:
+            await interaction.response.send_message("Aucune réaction 👍 détectée sur ce message.", ephemeral=True)
             return
+
+        users = [u async for u in thumbs_up.users()]
+        if interaction.user not in users:
+            await interaction.response.send_message("Tu dois réagir avec 👍 avant d’ajouter des défenseurs.", ephemeral=True)
+            return
+
         await interaction.response.send_message(
             "Sélectionne jusqu'à 3 défenseurs à ajouter :",
-            view=AddDefendersSelectView(self.bot, self.message_id, first_id),
+            view=AddDefendersSelectView(self.bot, self.message_id, interaction.user.id),
             ephemeral=True,
         )
 
@@ -249,17 +249,25 @@ class AddDefendersButtonView(discord.ui.View):
     async def add_attackers(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.send_modal(AttackersModal(self.message_id))
 
+    @discord.ui.button(label="Solo", style=discord.ButtonStyle.danger, emoji="🧍", custom_id="delete_alert")
+    async def delete_alert(self, interaction: discord.Interaction, button: discord.ui.Button):
+        try:
+            channel = interaction.guild.get_channel(interaction.channel_id) or interaction.guild.get_thread(interaction.channel_id)
+            msg = await channel.fetch_message(self.message_id)
+            await msg.delete()
+            await interaction.response.send_message("✅ Alerte supprimée.", ephemeral=True)
+        except Exception as e:
+            await interaction.response.send_message(f"❌ Erreur lors de la suppression : {e}", ephemeral=True)
+
 
 # ---------- Panneau de ping (dynamique) ----------
 class PingButtonsView(discord.ui.View):
-    """Vue persistante vide (compat). Le vrai panneau est construit à l'appel de la commande."""
     def __init__(self, bot: commands.Bot):
         super().__init__(timeout=None)
         self.bot = bot
 
 
 def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
-    """Construit une View avec un bouton par équipe déclarée dans team_config + bouton TEST (si admin)."""
     view = discord.ui.View(timeout=None)
     cfg = get_guild_config(guild.id)
     teams = get_teams(guild.id)
@@ -267,8 +275,6 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
     async def handle_click(interaction: discord.Interaction, role_id: int, team_id: int):
         now = time.time()
         key = (guild.id, team_id)
-
-        # Anti-spam : 1 alerte / 60s par équipe
         if key in last_alerts and now - last_alerts[key] < 60:
             await interaction.response.send_message("L'alerte a déjà été envoyée par un autre joueur!", ephemeral=True)
             return
@@ -298,7 +304,6 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
         incr_leaderboard(guild.id, "pingeur", interaction.user.id)
 
         emb = await build_ping_embed(msg)
-        # Afficher les boutons dès la création (incluant "Attaquants")
         await msg.edit(embed=emb, view=AddDefendersButtonView(bot, msg.id))
         await update_leaderboards(bot, guild)
 
@@ -307,11 +312,9 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
         except Exception:
             pass
 
-    # Créer un bouton par équipe (emoji custom si dispo)
     for t in teams:
         tid = int(t["team_id"])
         emoji = TEAM_EMOJIS.get(tid, "🔔")
-        # PRISME (team_id=8) en bleu; autres en rouge
         style = discord.ButtonStyle.primary if tid == 8 else discord.ButtonStyle.danger
 
         btn = discord.ui.Button(
@@ -327,7 +330,6 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
         btn.callback = on_click  # type: ignore
         view.add_item(btn)
 
-    # Bouton TEST (gris), réservé aux admins
     if cfg and cfg.get("role_test_id"):
         test_btn = discord.ui.Button(
             label="TEST (Admin)", style=discord.ButtonStyle.secondary, custom_id="pingpanel:test"
