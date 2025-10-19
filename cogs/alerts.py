@@ -58,10 +58,10 @@ def _save_logs(data):
     with open(LOG_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-def add_attack_log(guild_id: int, team_name: str, attackers: str, timestamp: int):
+def add_attack_log(guild_id: int, team_name: str, timestamp: int):
     data = _load_logs()
     logs = data.get(str(guild_id), [])
-    entry = {"team": team_name, "attackers": attackers, "time": timestamp}
+    entry = {"team": team_name, "attackers": "—", "time": timestamp}
     logs.insert(0, entry)
     logs = logs[:MAX_ATTACKS]
     data[str(guild_id)] = logs
@@ -80,7 +80,7 @@ async def update_attack_log_embed(bot: commands.Bot, guild: discord.Guild):
         desc = "_Aucune attaque enregistrée._"
     else:
         desc = "\n".join(
-            f"• **{log['team']}** attaquée à <t:{log['time']}:t> par `{log['attackers'] or '—'}`"
+            f"• **{log['team']}** attaquée à <t:{log['time']}:t> par `{log['attackers']}`"
             for log in logs
         )
 
@@ -258,45 +258,28 @@ class AddDefendersButtonView(discord.ui.View):
         except Exception as e:
             await interaction.response.send_message(f"❌ Erreur lors de la suppression : {e}", ephemeral=True)
 
-# ---------- Modal ----------
-class PreAttackModal(discord.ui.Modal, title="📝 Guilde attaquante"):
-    attackers_text = discord.ui.TextInput(
-        label="Alliance / Guilde attaquante",
-        placeholder="Ex: [BLA] Black Legion",
-        required=False,
-        max_length=120,
-    )
-
-    def __init__(self, bot: commands.Bot, guild: discord.Guild, role_id: int, team_id: int):
-        super().__init__(timeout=300)
-        self.bot = bot
-        self.guild = guild
-        self.role_id = role_id
-        self.team_id = team_id
-
-    async def on_submit(self, interaction: discord.Interaction):
-        attackers = str(self.attackers_text).strip()
-        await send_alert_with_attackers(self.bot, self.guild, interaction, self.role_id, self.team_id, attackers)
-
 # ---------- Envoi alerte ----------
-async def send_alert_with_attackers(bot, guild, interaction, role_id, team_id, attackers_text: str):
+async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
     cfg = get_guild_config(guild.id)
-
-    try:
-        await interaction.response.defer(ephemeral=True, thinking=False)
-    except Exception:
-        pass
-
     alert_channel = guild.get_channel(cfg["alert_channel_id"]) if cfg else None
     if not alert_channel:
-        await interaction.followup.send("⚠️ Salon d’alerte introuvable.", ephemeral=True)
+        await interaction.response.send_message("⚠️ Salon d’alerte introuvable.", ephemeral=True)
         return
+
+    # Anti-spam par team : 1 alerte / 60s
+    now = time.time()
+    key = (guild.id, team_id)
+    if key in last_alerts and now - last_alerts[key] < 60:
+        await interaction.response.send_message("🚫 Une alerte pour cette équipe a déjà été envoyée récemment.", ephemeral=True)
+        return
+    last_alerts[key] = now
+
+    await interaction.response.defer(ephemeral=True, thinking=False)
 
     role_mention = f"<@&{role_id}>"
     content = f"{role_mention} — **Percepteur attaqué !** Merci de vous connecter."
     msg = await alert_channel.send(content)
 
-    # Enregistrement dans la base
     upsert_message(
         msg.id,
         msg.guild.id,
@@ -307,18 +290,12 @@ async def send_alert_with_attackers(bot, guild, interaction, role_id, team_id, a
     )
     incr_leaderboard(guild.id, "pingeur", interaction.user.id)
 
-    # Anti-spam mis à jour après succès
-    key = (guild.id, team_id)
-    last_alerts[key] = time.time()
-
-    attackers = [attackers_text] if attackers_text else []
-    emb = await build_ping_embed(msg, attackers=attackers)
+    emb = await build_ping_embed(msg)
     await msg.edit(embed=emb, view=AddDefendersButtonView(bot, msg.id))
     await update_leaderboards(bot, guild)
 
-    from time import time as now
-    team_name = next((t["name"] for t in get_teams(guild.id) if int(t["team_id"]) == int(team_id)), "Percepteur")
-    add_attack_log(guild.id, team_name, attackers_text, int(now()))
+    # Historique
+    add_attack_log(guild.id, next((t["name"] for t in get_teams(guild.id) if int(t["team_id"]) == int(team_id)), "Percepteur"), int(time.time()))
     await update_attack_log_embed(bot, guild)
 
     await interaction.followup.send("✅ Alerte envoyée.", ephemeral=True)
@@ -337,12 +314,7 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
         btn = discord.ui.Button(label=str(t["label"])[:80], style=style, emoji=emoji)
 
         async def on_click(interaction: discord.Interaction, role_id=int(t["role_id"]), team_id=int(t["team_id"])):
-            # Vérifie délai après dernière alerte (vérifié après envoi)
-            if (guild.id, team_id) in last_alerts and time.time() - last_alerts[(guild.id, team_id)] < 60:
-                await interaction.response.send_message("L'alerte précédente est trop récente (moins d’1 minute).", ephemeral=True)
-                return
-
-            await interaction.response.send_modal(PreAttackModal(bot, guild, role_id, team_id))
+            await send_alert(bot, guild, interaction, role_id, team_id)
 
         btn.callback = on_click  # type: ignore
         view.add_item(btn)
@@ -354,7 +326,7 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
             if cfg.get("admin_role_id") and not any(r.id == cfg["admin_role_id"] for r in interaction.user.roles):
                 await interaction.response.send_message("Bouton réservé aux admins.", ephemeral=True)
                 return
-            await interaction.response.send_modal(PreAttackModal(bot, guild, cfg["role_test_id"], team_id=0))
+            await send_alert(bot, guild, interaction, cfg["role_test_id"], team_id=0)
 
         test_btn.callback = on_test  # type: ignore
         view.add_item(test_btn)
