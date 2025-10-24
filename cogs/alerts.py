@@ -58,10 +58,16 @@ def _save_logs(data):
     with open(LOG_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-def add_attack_log(guild_id: int, team_name: str, timestamp: int):
+# 🆕 Ajout du message_id ici
+def add_attack_log(guild_id: int, team_name: str, timestamp: int, message_id: int):
     data = _load_logs()
     logs = data.get(str(guild_id), [])
-    entry = {"team": team_name, "attackers": "—", "time": timestamp}
+    entry = {
+        "team": team_name,
+        "attackers": "—",
+        "time": timestamp,
+        "message_id": message_id,  # 🆕 Identifiant du message d’alerte
+    }
     logs.insert(0, entry)
     logs = logs[:MAX_ATTACKS]
     data[str(guild_id)] = logs
@@ -80,7 +86,7 @@ async def update_attack_log_embed(bot: commands.Bot, guild: discord.Guild):
         desc = "_Aucune attaque enregistrée._"
     else:
         desc = "\n".join(
-            f"• **{log['team']}** attaquée à <t:{log['time']}:t> par `{log['attackers']}`"
+            f"• **{log['team']}** attaquée à <t:{log['time']}:t> par `{log.get('attackers', '—')}`"
             for log in logs
         )
 
@@ -266,7 +272,6 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
         await interaction.response.send_message("⚠️ Salon d’alerte introuvable.", ephemeral=True)
         return
 
-    # Anti-spam par team : 1 alerte / 60s
     now = time.time()
     key = (guild.id, team_id)
     if key in last_alerts and now - last_alerts[key] < 60:
@@ -279,13 +284,6 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
     role_mention = f"<@&{role_id}>"
     content = f"{role_mention} — **Percepteur attaqué !** Merci de vous connecter."
     msg = await alert_channel.send(content)
-
-    # ---------- 🔗 NOUVEAU : enregistre la dernière alerte du joueur ----------
-    attackers_cog = bot.get_cog("AttackersCog")
-    if attackers_cog:
-        from cogs.attackers import user_last_alert
-        user_last_alert[interaction.user.id] = msg.id
-    # --------------------------------------------------------------------------
 
     upsert_message(
         msg.id,
@@ -301,14 +299,19 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
     await msg.edit(embed=emb, view=AddDefendersButtonView(bot, msg.id))
     await update_leaderboards(bot, guild)
 
-    # Historique
-    add_attack_log(guild.id, next((t["name"] for t in get_teams(guild.id) if int(t["team_id"]) == int(team_id)), "Percepteur"), int(time.time()))
+    # Historique 🆕 (ajout du message_id ici)
+    add_attack_log(
+        guild.id,
+        next((t["name"] for t in get_teams(guild.id) if int(t["team_id"]) == int(team_id)), "Percepteur"),
+        int(time.time()),
+        msg.id,  # 🆕 identifiant du message d’alerte
+    )
     await update_attack_log_embed(bot, guild)
 
-    # ---------- 🔗 NOUVEAU : applique une alliance en attente ----------
+    # 🔗 Alliance en attente (cog Attackers)
+    attackers_cog = bot.get_cog("AttackersCog")
     if attackers_cog:
         await attackers_cog.apply_pending_attacker(msg, interaction.user.id)
-    # ------------------------------------------------------------------
 
     await interaction.followup.send("✅ Alerte envoyée.", ephemeral=True)
 
