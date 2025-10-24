@@ -280,6 +280,13 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
     content = f"{role_mention} — **Percepteur attaqué !** Merci de vous connecter."
     msg = await alert_channel.send(content)
 
+    # ---------- 🔗 NOUVEAU : enregistre la dernière alerte du joueur ----------
+    attackers_cog = bot.get_cog("AttackersCog")
+    if attackers_cog:
+        from cogs.attackers import user_last_alert
+        user_last_alert[interaction.user.id] = msg.id
+    # --------------------------------------------------------------------------
+
     upsert_message(
         msg.id,
         msg.guild.id,
@@ -297,6 +304,11 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
     # Historique
     add_attack_log(guild.id, next((t["name"] for t in get_teams(guild.id) if int(t["team_id"]) == int(team_id)), "Percepteur"), int(time.time()))
     await update_attack_log_embed(bot, guild)
+
+    # ---------- 🔗 NOUVEAU : applique une alliance en attente ----------
+    if attackers_cog:
+        await attackers_cog.apply_pending_attacker(msg, interaction.user.id)
+    # ------------------------------------------------------------------
 
     await interaction.followup.send("✅ Alerte envoyée.", ephemeral=True)
 
