@@ -106,7 +106,7 @@ def _build_pingeur_embed(guild: discord.Guild) -> discord.Embed:
 async def safe_edit_message(msg: discord.Message, ch: discord.TextChannel, emb: discord.Embed, key: str, guild_id: int):
     """Édite un message avec gestion de la limite Discord (30046)."""
     try:
-        await msg.edit(embed=emb)
+        await msg.edit(embed=[emb])
     except discord.HTTPException as e:
         if e.code == 30046:  # trop d'édits sur message >1h
             try:
