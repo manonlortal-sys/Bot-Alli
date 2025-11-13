@@ -85,15 +85,38 @@ if __name__ == "__main__":
             role_test_id=1421867268421320844,      # TEST
             admin_role_id=1139578015676895342
         )
+
         # Seed des équipes dynamiques (1→7) + Prisme (8)
         upsert_team(1139550147190214727, 1, "Wanted",        1419320456263237663, "WANTED 1",     1)
         upsert_team(1139550147190214727, 2, "Wanted 2",      1421860260377006295, "WANTED 2",     2)
         upsert_team(1139550147190214727, 3, "Snowflake",     1421859079755927682, "SNOWFLAKE",    3)
         upsert_team(1139550147190214727, 4, "Secteur K",     1419320615999111359, "SECTEUR K",    4)
+
+        # 🟦 Nouvelle team RIXE (team_id = 5)
+        upsert_team(
+            1139550147190214727,
+            5,
+            "Rixe",
+            1421927584802934915,
+            "RIXE",
+            5
+        )
+
         upsert_team(1139550147190214727, 6, "HAGRATIME",     1421927858967810110, "HAGRATIME",    6)
         upsert_team(1139550147190214727, 7, "HagraPaLtime",  1421927953188524144, "HAGRAPALTIME", 7)
-        # ➕ Nouvelle équipe : PRISME (bouton bleu)
+
+        # ➕ PRISME (team 8)
         upsert_team(1139550147190214727, 8, "Prisme",        1421953218719518961, "PRISME",       8)
+
+        # 🟪 Nouvelle team RUTHLESS (team_id = 9)
+        upsert_team(
+            1139550147190214727,
+            9,
+            "Ruthless",
+            1437841408856948776,
+            "RUTHLESS",
+            9
+        )
 
         print("✅ DB vérifiée/initialisée avec config serveur & équipes")
     except Exception as e:
