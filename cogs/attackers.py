@@ -14,7 +14,7 @@ from .alerts import build_ping_embed, update_attack_log_embed, LOG_FILE
 
 ATTACKER_COOLDOWN = 60          # secondes avant qu'un joueur puisse recliquer sur la même alliance
 ATTACKER_EXPIRATION = 120       # durée de vie du clic "en attente" (2 min)
-ATTACKER_LIST = ["VAE", "WBC", "BRUT", "KOBO", "HZN", "CLT", "METAA", "AUTRE"]
+ATTACKER_LIST = ["VAE", "WBC", "BRUT", "KOBO", "HZN", "CLT", "AUTRE"]
 
 # =============================
 # 🧠 MÉMOIRE TEMPORAIRE
