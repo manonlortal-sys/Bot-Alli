@@ -361,16 +361,15 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
         team=team_id,
     )
 
-    # pingeur (pas test ni prisme)
+    # pingeur (sauf test/prisme)
     if team_id not in (0, 8):
+        from storage import incr_leaderboard
         incr_leaderboard(guild.id, "pingeur", interaction.user.id)
 
     emb = await build_ping_embed(msg)
     await msg.edit(embed=emb, view=AddDefendersButtonView(bot, msg.id))
 
-    # leaderboard global (pas test / prisme)
-    if team_id not in (0, 8):
-        await update_leaderboards(bot, guild)
+    await update_leaderboards(bot, guild)
 
     team_name = next(
         (t["name"] for t in get_teams(guild.id) if int(t["team_id"]) == int(team_id)),
@@ -379,16 +378,13 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
     add_attack_log(guild.id, team_name, int(time.time()), msg.id)
     await update_attack_log_embed(bot, guild)
 
-    # lien avec le cog Attackers (avant/après)
+    # 🔥 appliquer alliance stockée AVANT
     atk_cog = bot.get_cog("AttackersCog")
     if atk_cog:
-        # mémorise cette alerte comme "dernière" pour cet utilisateur
-        atk_cog.register_alert_message(interaction.user.id, msg.id)  # type: ignore
-        # et applique si une alliance a été choisie AVANT l’alerte
-        await atk_cog.apply_pending_attacker(msg, interaction.user.id)  # type: ignore
+        atk_cog.register_alert_message(interaction.user.id, msg.id)
+        await atk_cog.apply_pending_attacker(msg, interaction.user.id)
 
     await interaction.followup.send("Alerte envoyée.", ephemeral=True)
-
 
 # ---------------- PANEL ----------------
 
