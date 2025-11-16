@@ -1,34 +1,15 @@
+import os
+import json
 import sqlite3
 import time
-import json
-import os
 from typing import Optional, Tuple, List, Dict
 
 DB_PATH = "defense_leaderboard.db"
 LOG_FILE = "storage_attack_log.json"
 
+
 def utcnow_i() -> int:
     return int(time.time())
-
-
-# ============================================================
-#  JSON LOG HANDLING (centralisé)
-# ============================================================
-
-def _load_logs() -> dict:
-    """Charge le fichier storage_attack_log.json (historique des attaques)."""
-    if not os.path.exists(LOG_FILE):
-        return {}
-    try:
-        with open(LOG_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-def _save_logs(data: dict):
-    """Écrit l’historique des attaques dans storage_attack_log.json."""
-    with open(LOG_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 # ============================================================
@@ -126,8 +107,8 @@ def create_db():
     # Stockage des messages leaderboard
     cur.execute("""
         CREATE TABLE IF NOT EXISTS leaderboard_posts(
-            guild_id INTEGER NOT NULL,
-            key      TEXT NOT NULL,
+            guild_id   INTEGER NOT NULL,
+            key        TEXT NOT NULL,
             channel_id INTEGER NOT NULL,
             message_id INTEGER NOT NULL,
             PRIMARY KEY (guild_id, key)
@@ -222,41 +203,61 @@ def upsert_message(con, message_id, guild_id, channel_id, created_ts, creator_id
         ON CONFLICT(message_id) DO NOTHING
     """, (message_id, guild_id, channel_id, created_ts, utcnow_i(), creator_id, team))
     if team is not None:
-        con.execute("UPDATE messages SET team=?, last_ts=? WHERE message_id=?",
-                    (team, utcnow_i(), message_id))
+        con.execute(
+            "UPDATE messages SET team=?, last_ts=? WHERE message_id=?",
+            (team, utcnow_i(), message_id)
+        )
 
 
 @with_db
 def is_tracked_message(con, message_id: int) -> bool:
-    return con.execute("SELECT 1 FROM messages WHERE message_id=?", (message_id,)).fetchone() is not None
+    return con.execute(
+        "SELECT 1 FROM messages WHERE message_id=?",
+        (message_id,)
+    ).fetchone() is not None
 
 
 @with_db
 def get_message_creator(con, message_id: int) -> Optional[int]:
-    row = con.execute("SELECT creator_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
+    row = con.execute(
+        "SELECT creator_id FROM messages WHERE message_id=?",
+        (message_id,)
+    ).fetchone()
     return row["creator_id"] if row else None
 
 
 @with_db
 def get_message_team(con, message_id: int) -> Optional[int]:
-    row = con.execute("SELECT team FROM messages WHERE message_id=?", (message_id,)).fetchone()
+    row = con.execute(
+        "SELECT team FROM messages WHERE message_id=?",
+        (message_id,)
+    ).fetchone()
     return row["team"] if row else None
 
 
 @with_db
 def get_message_outcome(con, message_id: int) -> Optional[str]:
-    row = con.execute("SELECT outcome FROM messages WHERE message_id=?", (message_id,)).fetchone()
+    row = con.execute(
+        "SELECT outcome FROM messages WHERE message_id=?",
+        (message_id,)
+    ).fetchone()
     return row["outcome"] if row else None
 
 
 @with_db
 def set_outcome(con, message_id: int, outcome: Optional[str]):
-    con.execute("UPDATE messages SET outcome=?, last_ts=? WHERE message_id=?", (outcome, utcnow_i(), message_id))
+    con.execute(
+        "UPDATE messages SET outcome=?, last_ts=? WHERE message_id=?",
+        (outcome, utcnow_i(), message_id)
+    )
 
 
 @with_db
 def set_incomplete(con, message_id: int, incomplete: bool):
-    con.execute("UPDATE messages SET incomplete=?, last_ts=? WHERE message_id=?", (1 if incomplete else 0, utcnow_i(), message_id))
+    con.execute(
+        "UPDATE messages SET incomplete=?, last_ts=? WHERE message_id=?",
+        (1 if incomplete else 0, utcnow_i(), message_id)
+    )
 
 
 # ============================================================
@@ -277,7 +278,10 @@ def add_participant(con, message_id, user_id, added_by=None, source="reaction") 
 
 @with_db
 def remove_participant(con, message_id, user_id) -> bool:
-    cur = con.execute("DELETE FROM participants WHERE message_id=? AND user_id=?", (message_id, user_id))
+    cur = con.execute(
+        "DELETE FROM participants WHERE message_id=? AND user_id=?",
+        (message_id, user_id)
+    )
     return cur.rowcount > 0
 
 
@@ -316,7 +320,8 @@ def get_first_defender(con, message_id: int) -> Optional[int]:
 @with_db
 def get_participants_user_ids(con, message_id: int) -> List[int]:
     return [r["user_id"] for r in con.execute(
-        "SELECT user_id FROM participants WHERE message_id=?", (message_id,)
+        "SELECT user_id FROM participants WHERE message_id=?",
+        (message_id,)
     ).fetchall()]
 
 
@@ -337,7 +342,8 @@ def incr_leaderboard(con, guild_id: int, type_: str, user_id: int):
 @with_db
 def decr_leaderboard(con, guild_id: int, type_: str, user_id: int):
     con.execute("""
-        UPDATE leaderboard_totals SET count = count - 1
+        UPDATE leaderboard_totals
+        SET count = count - 1
         WHERE guild_id=? AND type=? AND user_id=?
     """, (guild_id, type_, user_id))
     con.execute("""
@@ -372,11 +378,47 @@ def get_leaderboard_totals_all(con, guild_id: int, type_: str) -> Dict[int, int]
 @with_db
 def get_leaderboard_value(con, guild_id: int, type_: str, user_id: int) -> int:
     row = con.execute("""
-        SELECT count 
+        SELECT count
         FROM leaderboard_totals
         WHERE guild_id=? AND type=? AND user_id=?
     """, (guild_id, type_, user_id)).fetchone()
     return row["count"] if row else 0
+
+
+# ============================================================
+#  AGGREGATION PAR TEAM (pour leaderboard)
+# ============================================================
+
+@with_db
+def agg_totals_by_team(con, guild_id: int, team_id: int) -> Tuple[int, int, int, int]:
+    """
+    Retourne (wins, losses, incomplete, attacks) pour une team donnée.
+    - attacks  = nombre total d'alertes pour cette team
+    - wins     = alerts avec outcome = 'win'
+    - losses   = alerts avec outcome = 'loss'
+    - incomplete = alerts avec incomplete = 1
+    """
+    row = con.execute(
+        """
+        SELECT
+            COUNT(*) AS attacks,
+            SUM(CASE WHEN outcome = 'win'  THEN 1 ELSE 0 END) AS wins,
+            SUM(CASE WHEN outcome = 'loss' THEN 1 ELSE 0 END) AS losses,
+            SUM(CASE WHEN incomplete = 1   THEN 1 ELSE 0 END) AS incompletes
+        FROM messages
+        WHERE guild_id = ? AND team = ?
+        """,
+        (guild_id, team_id),
+    ).fetchone()
+
+    if not row:
+        return 0, 0, 0, 0
+
+    att = row["attacks"] or 0
+    w   = row["wins"] or 0
+    l   = row["losses"] or 0
+    inc = row["incompletes"] or 0
+    return w, l, inc, att
 
 
 # ============================================================
@@ -422,3 +464,27 @@ def get_message_info(con, message_id: int) -> Optional[Tuple[int, int]]:
 def delete_message_and_participants(con, message_id: int):
     con.execute("DELETE FROM participants WHERE message_id=?", (message_id,))
     con.execute("DELETE FROM messages WHERE message_id=?", (message_id,))
+
+
+# ============================================================
+#  JSON LOGS POUR L'HISTORIQUE D'ATTAQUES (cogs.attaque)
+# ============================================================
+
+def _load_logs() -> dict:
+    """Lit le fichier JSON d'historique des attaques."""
+    if not os.path.exists(LOG_FILE):
+        return {}
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_logs(data: dict):
+    """Écrit le fichier JSON d'historique des attaques."""
+    try:
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
