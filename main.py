@@ -32,38 +32,55 @@ intents.reactions = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+
 @bot.event
 async def setup_hook():
     print("🚀 setup_hook démarré")
 
-    for ext in ["cogs.alerts", "cogs.reactions", "cogs.leaderboard",
-                "cogs.attackers", "cogs.attaque", "cogs.pvp"]:
+    # Chargement des cogs
+    for ext in [
+        "cogs.alerts",
+        "cogs.reactions",
+        "cogs.leaderboard",
+        "cogs.attackers",
+        "cogs.attaque",
+        "cogs.pvp"
+    ]:
         try:
             await bot.load_extension(ext)
             print(f"✅ {ext} chargé")
         except Exception as e:
             print(f"❌ Erreur chargement {ext} :", e)
 
+    # Enregistrer les Views persistantes
     try:
-        await bot.tree.sync()
-        print("✅ Slash commands sync (global)")
+        from cogs.alerts import PingButtonsView
+        bot.add_view(PingButtonsView(bot))
+        print("✅ View PingButtonsView persistante enregistrée")
     except Exception as e:
-        print("❌ Slash sync error :", e)
+        print("❌ Erreur enregistrement View PingButtonsView :", e)
+
+    # ❗❗ IMPORTANT : uniquement sync PAR GUILDE
+    for g in bot.guilds:
+        try:
+            await bot.tree.sync(guild=discord.Object(id=g.id))
+            print(f"🌍 Slash sync pour la guilde {g.id}")
+        except Exception as e:
+            print("❌ Erreur per-guild sync :", e)
+
 
 @bot.event
 async def on_ready():
     print(f"✅ Connecté en tant que {bot.user} (ID: {bot.user.id})")
-    try:
-        for g in bot.guilds:
-            await bot.tree.sync(guild=discord.Object(id=g.id))
-        print("✅ Slash commands synced per guild")
-    except Exception as e:
-        print("❌ Per-guild slash sync error:", e)
+    print("Toutes les commandes slash sont maintenant disponibles.")
+
 
 if __name__ == "__main__":
     print("⚡ Démarrage du bot...")
     try:
         create_db()
+
+        # Config serveur principal
         upsert_guild_config(
             guild_id=1139550147190214727,
             alert_channel_id=1139550892471889971,
@@ -77,6 +94,7 @@ if __name__ == "__main__":
             admin_role_id=1139578015676895342
         )
 
+        # Teams
         upsert_team(1139550147190214727, 1, "Wanted", 1419320456263237663, "WANTED 1", 1)
         upsert_team(1139550147190214727, 2, "Wanted 2", 1421860260377006295, "WANTED 2", 2)
         upsert_team(1139550147190214727, 3, "Snowflake", 1421859079755927682, "SNOWFLAKE", 3)
@@ -84,10 +102,9 @@ if __name__ == "__main__":
         upsert_team(1139550147190214727, 5, "Rixe", 1421927584802934915, "RIXE", 5)
         upsert_team(1139550147190214727, 6, "HAGRATIME", 1421927858967810110, "HAGRATIME", 6)
         upsert_team(1139550147190214727, 7, "HagraPaLtime", 1421927953188524144, "HAGRAPALTIME", 7)
-        upsert_team(1139550147190214727, 8, "Prisme", 1421953218719518961, "PRISME", 8)
         upsert_team(1139550147190214727, 9, "Ruthless", 1437841408856948776, "RUTHLESS", 9)
 
-        print("✅ DB vérifiée/initialisée")
+        print("✅ DB OK")
     except Exception as e:
         print("⚠️ Impossible d'initialiser la DB :", e)
 
