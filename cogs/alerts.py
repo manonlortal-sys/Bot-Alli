@@ -37,13 +37,14 @@ TEAM_EMOJIS: dict[int, discord.PartialEmoji] = {
     5: discord.PartialEmoji(name="Rixe", id=1438157003162648656),
     6: discord.PartialEmoji(name="HagraTime", id=1422120372836503622),
     7: discord.PartialEmoji(name="HagraPasLtime", id=1422120467812323339),
-    8: discord.PartialEmoji(name="Prisme", id=1422160491228434503),
-    9: discord.PartialEmoji(name="Ruthless", id=1438157046770827304),
+    9: discord.PartialEmoji(name="Ruthless", id=1438157046770827304)
 }
+
+# ATTENTION : Prisme (team_id=8) a été volontairement retiré
 
 ATTACKERS_PREFIX = "⚔️ Attaquants : "
 
-# Anti-spam : 1 alerte / 60s par équipe (clé = (guild_id, team_id))
+# Anti-spam
 last_alerts: dict[tuple[int, int], float] = {}
 
 # ---------- Historique ----------
@@ -60,7 +61,6 @@ def _save_logs(data):
     with open(LOG_FILE, "w") as f:
         json.dump(data, f, indent=2)
 
-# 🆕 Ajout du message_id ici
 def add_attack_log(guild_id: int, team_name: str, timestamp: int, message_id: int):
     data = _load_logs()
     logs = data.get(str(guild_id), [])
@@ -106,6 +106,7 @@ async def update_attack_log_embed(bot: commands.Bot, guild: discord.Guild):
                 return
             except discord.HTTPException:
                 break
+
     await channel.send(embed=embed)
 
 # ---------- Helpers ----------
@@ -122,6 +123,7 @@ def _parse_attackers_from_embed(msg: discord.Message) -> List[str]:
                     attackers.append(s[len(ATTACKERS_PREFIX):])
             break
     return attackers[:3]
+
 
 async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] = None) -> discord.Embed:
     creator_id = get_message_creator(msg.id)
@@ -296,10 +298,7 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
         team=team_id,
     )
 
-    # -------------------------------------------------------
-    # 🆕 IMPORTANT :
-    # ❌ On ne compte PAS les pings pour les teams Test (0) et Prisme (8)
-    # -------------------------------------------------------
+    # On ne compte PAS les pings pour test (0) et prisme (8)
     if team_id not in (0, 8):
         incr_leaderboard(guild.id, "pingeur", interaction.user.id)
 
@@ -329,17 +328,23 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
 
     for t in teams:
         tid = int(t["team_id"])
+
+        # ❌ On retire Prisme (team_id = 8)
+        if tid == 8:
+            continue
+
         emoji = TEAM_EMOJIS.get(tid, "🔔")
-        style = discord.ButtonStyle.primary if tid == 8 else discord.ButtonStyle.danger
+        style = discord.ButtonStyle.primary if tid != 0 else discord.ButtonStyle.secondary
 
         btn = discord.ui.Button(label=str(t["label"])[:80], style=style, emoji=emoji)
 
-        async def on_click(interaction: discord.Interaction, role_id=int(t["role_id"]), team_id=int(t["team_id"])):
+        async def on_click(interaction: discord.Interaction, role_id=int(t["role_id"]), team_id=tid):
             await send_alert(bot, guild, interaction, role_id, team_id)
 
         btn.callback = on_click  # type: ignore
         view.add_item(btn)
 
+    # Bouton TEST en bas
     if cfg and cfg.get("role_test_id"):
         test_btn = discord.ui.Button(label="TEST (Admin)", style=discord.ButtonStyle.secondary)
 
