@@ -12,17 +12,17 @@ from .alerts import build_ping_embed, update_attack_log_embed, LOG_FILE
 # ⚙️ CONFIGURATION
 # =============================
 
-ATTACKER_COOLDOWN = 60          # secondes avant qu'un joueur puisse recliquer sur la même alliance
-ATTACKER_EXPIRATION = 120       # durée de vie du clic "en attente" (2 min)
+ATTACKER_COOLDOWN = 60          
+ATTACKER_EXPIRATION = 120       
 ATTACKER_LIST = ["VAE", "WBC", "BRUT", "KOBO", "HZN", "CLT", "AUTRE"]
 
 # =============================
 # 🧠 MÉMOIRE TEMPORAIRE
 # =============================
 
-user_last_alert: dict[int, int] = {}                      # user_id -> message_id
-pending_attackers: dict[int, tuple[str, float]] = {}      # user_id -> (nom_alliance, timestamp)
-attack_cooldowns: dict[tuple[int, str], float] = {}       # (user_id, alliance) -> timestamp
+user_last_alert: dict[int, int] = {}
+pending_attackers: dict[int, tuple[str, float]] = {}
+attack_cooldowns: dict[tuple[int, str], float] = {}
 
 # =============================
 # 🔧 UTILITAIRES
@@ -66,87 +66,94 @@ def _save_logs(data: dict):
 # =============================
 
 def update_attack_log_entry(guild_id: int, message_id: int, alliance_name: str):
-    """Met à jour l'entrée correspondante à ce message_id dans le JSON."""
     data = _load_logs()
     logs = data.get(str(guild_id), [])
     for entry in logs:
-        if str(entry.get("message_id", "")) == str(message_id):
+        if str(entry.get("message_id")) == str(message_id):
             entry["attackers"] = alliance_name
             break
     data[str(guild_id)] = logs[:30]
     _save_logs(data)
 
 # =============================
-# 🧱 PANNEAU DES ALLIANCES
+# 🔘 BOUTON PERSONNALISÉ (Fix)
+# =============================
+
+class AttackButton(discord.ui.Button):
+    def __init__(self, bot: commands.Bot, alliance_name: str):
+        super().__init__(
+            label=alliance_name,
+            style=discord.ButtonStyle.danger,
+            custom_id=f"attacker_{alliance_name}"
+        )
+        self.bot = bot
+        self.alliance_name = alliance_name
+
+    async def callback(self, interaction: discord.Interaction):
+        alliance = self.alliance_name
+        user = interaction.user
+        user_id = user.id
+
+        await interaction.response.defer(ephemeral=True)
+
+        # Cooldown
+        if is_on_cooldown(user_id, alliance):
+            await interaction.followup.send(
+                f"⏱️ Tu dois attendre avant de recliquer sur **{alliance}**.",
+                ephemeral=True
+            )
+            return
+        set_cooldown(user_id, alliance)
+
+        # Retrouver l’alerte précédente si elle existe
+        msg = None
+        if user_id in user_last_alert:
+            msg_id = user_last_alert[user_id]
+            try:
+                msg = await interaction.channel.fetch_message(msg_id)
+            except Exception:
+                for ch in interaction.guild.text_channels:
+                    try:
+                        msg = await ch.fetch_message(msg_id)
+                        break
+                    except Exception:
+                        continue
+
+        # 🔄 Mise à jour immédiate
+        if msg and msg.embeds:
+            emb = await build_ping_embed(msg, attackers=[alliance])
+            try:
+                await msg.edit(embed=emb)
+            except discord.HTTPException:
+                await interaction.followup.send("⚠️ Erreur lors de la mise à jour.", ephemeral=True)
+                return
+
+            update_attack_log_entry(interaction.guild.id, msg.id, alliance)
+            await update_attack_log_embed(self.bot, interaction.guild)
+
+            await interaction.followup.send(
+                f"✅ Alliance **{alliance}** appliquée à ta dernière alerte.",
+                ephemeral=True
+            )
+
+        # ⏳ En attente pour la prochaine alerte
+        else:
+            set_pending_attacker(user_id, alliance)
+            await interaction.followup.send(
+                f"🕒 Alliance **{alliance}** enregistrée.\n"
+                "Elle sera appliquée automatiquement à ta **prochaine alerte** (pendant 2 minutes).",
+                ephemeral=True
+            )
+
+
+# =============================
+# 🧱 FABRICATION DU PANNEAU
 # =============================
 
 def make_attack_view(bot: commands.Bot) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
-
     for alliance in ATTACKER_LIST:
-        btn = discord.ui.Button(label=alliance, style=discord.ButtonStyle.danger)
-
-        async def on_click(interaction: discord.Interaction, alliance_name=alliance):
-            await interaction.response.defer(ephemeral=True, thinking=False)
-            user = interaction.user
-            user_id = user.id
-
-            # Vérifie cooldown
-            if is_on_cooldown(user_id, alliance_name):
-                await interaction.followup.send(
-                    f"⏱️ Tu dois attendre avant de recliquer sur **{alliance_name}** (60 s).",
-                    ephemeral=True
-                )
-                return
-            set_cooldown(user_id, alliance_name)
-
-            msg = None
-            if user_id in user_last_alert:
-                msg_id = user_last_alert[user_id]
-                # Cherche dans le salon courant puis dans les salons visibles
-                try:
-                    msg = await interaction.channel.fetch_message(msg_id)
-                except Exception:
-                    for ch in interaction.guild.text_channels:
-                        try:
-                            msg = await ch.fetch_message(msg_id)
-                            if msg:
-                                break
-                        except Exception:
-                            continue
-
-            # ✅ Si une alerte existe déjà pour ce joueur
-            if msg and msg.embeds:
-                emb = await build_ping_embed(msg, attackers=[alliance_name])
-                try:
-                    await msg.edit(embed=emb)
-                except discord.HTTPException:
-                    await interaction.followup.send("⚠️ Erreur lors de la mise à jour de l'alerte.", ephemeral=True)
-                    return
-
-                # 🔄 Met à jour le JSON + embed historique
-                try:
-                    update_attack_log_entry(interaction.guild.id, msg.id, alliance_name)
-                    await update_attack_log_embed(bot, interaction.guild)
-                except Exception:
-                    pass
-
-                await interaction.followup.send(
-                    f"✅ Alliance **{alliance_name}** appliquée à ta dernière alerte.",
-                    ephemeral=True
-                )
-
-            # ⏳ Sinon, enregistre pour la prochaine alerte
-            else:
-                set_pending_attacker(user_id, alliance_name)
-                await interaction.followup.send(
-                    f"🕒 Alliance **{alliance_name}** enregistrée. Elle sera appliquée à ta prochaine alerte (pendant 2 min).",
-                    ephemeral=True
-                )
-
-        btn.callback = on_click  # type: ignore
-        view.add_item(btn)
-
+        view.add_item(AttackButton(bot, alliance))
     return view
 
 # =============================
@@ -154,23 +161,21 @@ def make_attack_view(bot: commands.Bot) -> discord.ui.View:
 # =============================
 
 class AttackersCog(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot):
         self.bot = bot
 
-    # ---- Commande d’envoi du panneau ----
     @app_commands.command(name="attackpanel", description="Publier le panneau des alliances attaquantes")
     async def attackpanel(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="📢 ALLIANCE ATTAQUANTE",
             description=(
                 "Clique **une seule fois** sur l’alliance qui attaque **avant ou après** avoir cliqué sur la guilde attaquée.\n\n"
-                "💡 L’alerte du canal défense se mettra à jour avec cette info !"
+                "💡 L’alerte du canal défense se mettra automatiquement à jour."
             ),
             color=discord.Color.red(),
         )
         await interaction.response.send_message(embed=embed, view=make_attack_view(self.bot))
 
-    # ---- Applique une alliance en attente à une alerte nouvellement créée ----
     async def apply_pending_attacker(self, message: discord.Message, user_id: int) -> bool:
         alliance = get_pending_attacker(user_id)
         if not alliance:
@@ -182,19 +187,13 @@ class AttackersCog(commands.Cog):
         except discord.HTTPException:
             return False
 
-        try:
-            update_attack_log_entry(message.guild.id, message.id, alliance)
-            await update_attack_log_embed(self.bot, message.guild)
-        except Exception:
-            pass
+        update_attack_log_entry(message.guild.id, message.id, alliance)
+        await update_attack_log_embed(self.bot, message.guild)
 
         if user_id in pending_attackers:
             del pending_attackers[user_id]
         return True
 
-# =============================
-# 🔧 SETUP
-# =============================
 
 async def setup(bot: commands.Bot):
     await bot.add_cog(AttackersCog(bot))
