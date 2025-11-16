@@ -217,6 +217,8 @@ class AttackersCog(commands.Cog):
         # et on mémorise cette alerte comme dernière
         user_last_alert[user_id] = message.id
         return True
+    def register_alert_message(self, user_id: int, message_id: int):
+    user_last_alert[user_id] = message_id
 
 
 async def setup(bot):
