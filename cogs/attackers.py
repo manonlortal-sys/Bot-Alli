@@ -4,7 +4,7 @@ from discord.ext import commands
 from discord import app_commands
 import time
 import json
-from typing import Optional, Tuple, List
+from typing import Optional, List
 
 from cogs.alerts import build_ping_embed, update_attack_log_embed, LOG_FILE
 
@@ -36,11 +36,14 @@ def is_on_cooldown(user_id: int, alliance: str) -> bool:
     key = (user_id, alliance)
     return key in attack_cooldowns and (time.time() - attack_cooldowns[key]) < ATTACKER_COOLDOWN
 
+
 def set_cooldown(user_id: int, alliance: str):
     attack_cooldowns[(user_id, alliance)] = time.time()
 
+
 def set_pending_attacker(user_id: int, alliance: str):
     pending_attackers[user_id] = (alliance, time.time())
+
 
 def get_pending_attacker(user_id: int) -> Optional[str]:
     if user_id not in pending_attackers:
@@ -58,6 +61,7 @@ def _load_logs() -> dict:
             return json.load(f)
     except:
         return {}
+
 
 def _save_logs(data: dict):
     try:
@@ -87,11 +91,12 @@ def update_attack_log_entry(guild_id: int, message_id: int, alliance_name: str):
 # =============================
 
 class AttackButton(discord.ui.Button):
-    def __init__(self, bot: commands.Bot, alliance_name: str):
+    def __init__(self, bot: commands.Bot, alliance_name: str, row: int):
         super().__init__(
             label=alliance_name,
             style=discord.ButtonStyle.danger,
-            custom_id=f"att_{alliance_name}"
+            custom_id=f"att_{alliance_name}",
+            row=row,
         )
         self.bot = bot
         self.alliance_name = alliance_name
@@ -161,8 +166,10 @@ class AttackButton(discord.ui.Button):
 
 def make_attack_view(bot: commands.Bot) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
-    for name in ATTACKER_LIST:
-        view.add_item(AttackButton(bot, name))
+    # 3 / 3 / 1 → 7 boutons sur 3 lignes propres
+    for idx, name in enumerate(ATTACKER_LIST):
+        row = idx // 3  # 0,0,0,1,1,1,2
+        view.add_item(AttackButton(bot, name, row=row))
     return view
 
 
