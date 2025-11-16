@@ -44,7 +44,7 @@ async def setup_hook():
         "cogs.leaderboard",
         "cogs.attackers",
         "cogs.attaque",
-        "cogs.pvp"
+        "cogs.pvp",
     ]:
         try:
             await bot.load_extension(ext)
@@ -52,27 +52,18 @@ async def setup_hook():
         except Exception as e:
             print(f"❌ Erreur chargement {ext} :", e)
 
-    # Enregistrer les Views persistantes
+    # 🔁 Sync global des commandes slash
     try:
-        from cogs.alerts import PingButtonsView
-        bot.add_view(PingButtonsView(bot))
-        print("✅ View PingButtonsView persistante enregistrée")
+        synced = await bot.tree.sync()
+        print(f"✅ Slash commands sync global ({len(synced)} commandes)")
     except Exception as e:
-        print("❌ Erreur enregistrement View PingButtonsView :", e)
-
-    # ❗❗ IMPORTANT : uniquement sync PAR GUILDE
-    for g in bot.guilds:
-        try:
-            await bot.tree.sync(guild=discord.Object(id=g.id))
-            print(f"🌍 Slash sync pour la guilde {g.id}")
-        except Exception as e:
-            print("❌ Erreur per-guild sync :", e)
+        print("❌ Erreur lors du sync global des slash commands :", e)
 
 
 @bot.event
 async def on_ready():
     print(f"✅ Connecté en tant que {bot.user} (ID: {bot.user.id})")
-    print("Toutes les commandes slash sont maintenant disponibles.")
+    print("Guildes :", [g.id for g in bot.guilds])
 
 
 if __name__ == "__main__":
@@ -91,18 +82,18 @@ if __name__ == "__main__":
             role_g3_id=1421859079755927682,
             role_g4_id=1419320615999111359,
             role_test_id=1421867268421320844,
-            admin_role_id=1139578015676895342
+            admin_role_id=1139578015676895342,
         )
 
         # Teams
-        upsert_team(1139550147190214727, 1, "Wanted", 1419320456263237663, "WANTED 1", 1)
-        upsert_team(1139550147190214727, 2, "Wanted 2", 1421860260377006295, "WANTED 2", 2)
-        upsert_team(1139550147190214727, 3, "Snowflake", 1421859079755927682, "SNOWFLAKE", 3)
-        upsert_team(1139550147190214727, 4, "Secteur K", 1419320615999111359, "SECTEUR K", 4)
-        upsert_team(1139550147190214727, 5, "Rixe", 1421927584802934915, "RIXE", 5)
-        upsert_team(1139550147190214727, 6, "HAGRATIME", 1421927858967810110, "HAGRATIME", 6)
-        upsert_team(1139550147190214727, 7, "HagraPaLtime", 1421927953188524144, "HAGRAPALTIME", 7)
-        upsert_team(1139550147190214727, 9, "Ruthless", 1437841408856948776, "RUTHLESS", 9)
+        upsert_team(1139550147190214727, 1, "Wanted",        1419320456263237663, "WANTED 1",     1)
+        upsert_team(1139550147190214727, 2, "Wanted 2",      1421860260377006295, "WANTED 2",     2)
+        upsert_team(1139550147190214727, 3, "Snowflake",     1421859079755927682, "SNOWFLAKE",    3)
+        upsert_team(1139550147190214727, 4, "Secteur K",     1419320615999111359, "SECTEUR K",    4)
+        upsert_team(1139550147190214727, 5, "Rixe",          1421927584802934915, "RIXE",         5)
+        upsert_team(1139550147190214727, 6, "HAGRATIME",     1421927858967810110, "HAGRATIME",    6)
+        upsert_team(1139550147190214727, 7, "HagraPaLtime",  1421927953188524144, "HAGRAPALTIME", 7)
+        upsert_team(1139550147190214727, 9, "Ruthless",      1437841408856948776, "RUTHLESS",     9)
 
         print("✅ DB OK")
     except Exception as e:
