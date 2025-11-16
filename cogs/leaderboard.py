@@ -1,211 +1,160 @@
 import discord
-from discord.ext import commands, tasks
+from discord.ext import commands
 from discord import app_commands
-from typing import Optional, List
-from zoneinfo import ZoneInfo
-from datetime import datetime
+from typing import List
 
 from storage import (
     get_guild_config,
     get_teams,
-    get_leaderboard_post,
-    set_leaderboard_post,
     get_leaderboard_totals,
+    get_leaderboard_value,
     agg_totals_by_team,
-    reset_all_leaderboards,
+    set_leaderboard_post,
+    get_leaderboard_post,
 )
 
-# ============================================================
-# ================== HELPERS / FORMAT ========================
-# ============================================================
+# Teams à exclure
+EXCLUDED_TEAMS = {0, 8}  # 0 = test, 8 = prisme
 
-def _format_top_defenders(
-    top: List[tuple[int, int]],
-    guild: discord.Guild,
-    team_role_id: int,
-    limit: int = 30
-) -> str:
-    lines: List[str] = []
-    shown = 0
-    for i, (uid, cnt) in enumerate(top):
+
+# ------------------------------------------------------------
+# 🔧 Helpers
+# ------------------------------------------------------------
+
+def _format_top_defenders(guild: discord.Guild, top: List[tuple[int, int]]) -> str:
+    lines = []
+    for i, (uid, cnt) in enumerate(top[:20]):
         member = guild.get_member(uid)
-        if not member or team_role_id not in [r.id for r in member.roles]:
+        if not member:
             continue
-        medal = ["🥇", "🥈", "🥉"][shown] if shown < 3 else "•"
-        lines.append(f"{medal} {member.mention} — {cnt} défenses")
-        shown += 1
-        if shown >= limit:
-            break
-    return "\n".join(lines) if lines else "_Aucun défenseur encore_"
+        medal = ["🥇", "🥈", "🥉"][i] if i < 3 else "•"
+        lines.append(f"{medal} {member.mention} — {cnt}")
+    return "\n".join(lines) if lines else "_Aucun défenseur pour l’instant_"
 
 
-async def _get_or_create_message_id(
-    bot: commands.Bot,
-    guild_id: int,
-    channel: discord.TextChannel,
-    storage_key: str,
-    title_prefix: str,
-    initial_embed: discord.Embed
-) -> int:
-    post = get_leaderboard_post(guild_id, storage_key)
-    msg_id: Optional[int] = post[1] if post else None
-    if msg_id:
-        return int(msg_id)
-    async for m in channel.history(limit=50):
-        if m.author.id != bot.user.id or not m.embeds:
+def _format_guild_block(guild_id: int, teams: list, exclude: set) -> str:
+    lines = []
+    for t in teams:
+        tid = int(t["team_id"])
+        if tid in exclude:
             continue
-        emb = m.embeds[0]
-        if (emb.title or "").startswith(title_prefix):
-            set_leaderboard_post(guild_id, channel.id, m.id, storage_key)
-            return m.id
-    sent = await channel.send(embed=initial_embed)
-    set_leaderboard_post(guild_id, channel.id, sent.id, storage_key)
-    return sent.id
+
+        w, l, inc, att = agg_totals_by_team(guild_id, tid)
+        name = t["name"]
+
+        lines.append(
+            f"### 🏰 {name}\n"
+            f"- Défenses : **{att}**\n"
+            f"- Victoires : **{w}**\n"
+            f"- Défaites : **{l}**\n"
+            f"- Incomplètes : **{inc}**\n"
+        )
+
+    return "\n".join(lines) if lines else "_Aucune guilde enregistrée_"
 
 
-# ============================================================
-# ================== BUILD DES EMBEDS ========================
-# ============================================================
+async def _edit_or_create(bot, guild: discord.Guild, channel: discord.TextChannel, storage_key: str, embed: discord.Embed):
+    """Édite le message déjà existant. Ne crée jamais de nouveau message sauf première fois."""
+    post = get_leaderboard_post(guild.id, storage_key)
 
-async def _build_guild_embed(guild: discord.Guild, team: dict) -> discord.Embed:
-    tid = int(team["team_id"])
-    role_id = int(team["role_id"])
-    w, l, inc, att = agg_totals_by_team(guild.id, tid)
-    top_def_global = get_leaderboard_totals(guild.id, "defense", limit=200)
-    defenders_block = _format_top_defenders(top_def_global, guild, role_id, limit=30)
+    if post:
+        msg_id = post[1]
+        try:
+            msg = await channel.fetch_message(msg_id)
+            await msg.edit(embed=embed)
+            return
+        except discord.NotFound:
+            pass
 
-    em = discord.Embed(
-        title=f"🏰 {team['name']} — Leaderboard hebdomadaire",
+    # Première création
+    sent = await channel.send(embed=embed)
+    set_leaderboard_post(guild.id, channel.id, sent.id, storage_key)
+
+
+# ------------------------------------------------------------
+# 🔥 Build embeds
+# ------------------------------------------------------------
+
+async def build_defense_embed(guild: discord.Guild) -> discord.Embed:
+    top_def = get_leaderboard_totals(guild.id, "defense", limit=200)
+    teams = [t for t in get_teams(guild.id) if int(t["team_id"]) not in EXCLUDED_TEAMS]
+
+    embed = discord.Embed(
+        title="🛡️ Leaderboard Défenses",
         color=discord.Color.gold()
     )
-    em.add_field(name="🗡️ Attaques", value=str(att), inline=True)
-    em.add_field(name="🏆 Victoires", value=str(w), inline=True)
-    em.add_field(name="❌ Défaites", value=str(l), inline=True)
-    em.add_field(name="😡 Incomplètes", value=str(inc), inline=True)
-    em.add_field(name="👥 Top défenseurs", value=defenders_block, inline=False)
-    em.set_footer(text="Remis à zéro chaque lundi à 00h00 (Europe/Paris)")
-    return em
+
+    embed.add_field(
+        name="🏆 Top 20 Défenseurs",
+        value=_format_top_defenders(guild, top_def),
+        inline=False
+    )
+
+    guild_stats_block = _format_guild_block(guild.id, teams, EXCLUDED_TEAMS)
+    embed.add_field(
+        name="📊 Statistiques par Guilde",
+        value=guild_stats_block,
+        inline=False
+    )
+
+    return embed
 
 
-def _build_pingeur_embed(guild: discord.Guild) -> discord.Embed:
+async def build_ping_embed(guild: discord.Guild) -> discord.Embed:
     top_ping = get_leaderboard_totals(guild.id, "pingeur", limit=20)
-    lines: List[str] = []
+
+    lines = []
     for i, (uid, cnt) in enumerate(top_ping):
         medal = ["🥇", "🥈", "🥉"][i] if i < 3 else "•"
-        lines.append(f"{medal} <@{uid}> — {cnt} pings")
-    text = "\n".join(lines) if lines else "_Aucun pingeur encore_"
-    em = discord.Embed(title="🛎️ Leaderboard Pingeurs", color=discord.Color.blurple())
-    em.add_field(name="**Top Pingeurs**", value=text, inline=False)
-    return em
+        lines.append(f"{medal} <@{uid}> — {cnt}")
+
+    text = "\n".join(lines) if lines else "_Aucun ping pour l’instant_"
+
+    embed = discord.Embed(
+        title="🛎️ Leaderboard Pingeurs",
+        color=discord.Color.blue()
+    )
+    embed.add_field(name="Top Pingeurs", value=text, inline=False)
+
+    return embed
 
 
-# ============================================================
-# ================== MISE À JOUR GLOBALE =====================
-# ============================================================
-
-async def safe_edit_message(msg: discord.Message, ch: discord.TextChannel, emb: discord.Embed, key: str, guild_id: int):
-    """Édite un message avec gestion de la limite Discord (30046)."""
-    try:
-        await msg.edit(embed=[emb])
-    except discord.HTTPException as e:
-        if e.code == 30046:  # trop d'édits sur message >1h
-            try:
-                await msg.delete()
-            except Exception:
-                pass
-            sent = await ch.send(embed=emb)
-            set_leaderboard_post(guild_id, ch.id, sent.id, key)
-        else:
-            raise
-
+# ------------------------------------------------------------
+# 🔁 Mise à jour globale
+# ------------------------------------------------------------
 
 async def update_leaderboards(bot: commands.Bot, guild: discord.Guild):
     cfg = get_guild_config(guild.id)
     if not cfg:
         return
-    ch = bot.get_channel(cfg["leaderboard_channel_id"])
-    if not isinstance(ch, discord.TextChannel):
+
+    channel = bot.get_channel(cfg["leaderboard_channel_id"])
+    if not isinstance(channel, discord.TextChannel):
         return
 
-    # --- Guildes ---
-    teams = [t for t in get_teams(guild.id) if int(t["team_id"]) != 8]
-    for t in teams:
-        key = f"guild_{int(t['team_id'])}"
-        emb = await _build_guild_embed(guild, t)
-        title_prefix = f"🏰 {t['name']}"
-        msg_id = await _get_or_create_message_id(bot, guild.id, ch, key, title_prefix, emb)
-        try:
-            msg = await ch.fetch_message(msg_id)
-            await safe_edit_message(msg, ch, emb, key, guild.id)
-        except discord.NotFound:
-            sent = await ch.send(embed=emb)
-            set_leaderboard_post(guild.id, ch.id, sent.id, key)
+    # DEFENSES
+    def_embed = await build_defense_embed(guild)
+    await _edit_or_create(bot, guild, channel, "leaderboard_def", def_embed)
 
-    # --- Pingeurs ---
-    ping_key = "pingeur"
-    ping_emb = _build_pingeur_embed(guild)
-    ping_title_prefix = "🛎️ Leaderboard Pingeurs"
-    ping_msg_id = await _get_or_create_message_id(bot, guild.id, ch, ping_key, ping_title_prefix, ping_emb)
-    try:
-        msg = await ch.fetch_message(ping_msg_id)
-        await safe_edit_message(msg, ch, ping_emb, ping_key, guild.id)
-    except discord.NotFound:
-        sent = await ch.send(embed=ping_emb)
-        set_leaderboard_post(guild.id, ch.id, sent.id, ping_key)
+    # PINGEURS
+    ping_embed = await build_ping_embed(guild)
+    await _edit_or_create(bot, guild, channel, "leaderboard_ping", ping_embed)
 
 
-# ============================================================
-# ======================= COG / COMMANDES ====================
-# ============================================================
+# ------------------------------------------------------------
+# 🎛️ Cog
+# ------------------------------------------------------------
 
 class LeaderboardCog(commands.Cog):
-    def __init__(self, bot: commands.Bot):
+    def __init__(self, bot):
         self.bot = bot
-        self._weekly_reset_task.start()
 
-    @app_commands.command(
-        name="reset-leaderboards",
-        description="Remet tous les leaderboards (sauf pingeur) à zéro et met à jour les messages."
-    )
+    @app_commands.command(name="leaderboards-refresh", description="Forcer la mise à jour des leaderboards.")
     @app_commands.checks.has_permissions(administrator=True)
-    async def reset_leaderboards_cmd(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        if not guild:
-            await interaction.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
-            return
-
+    async def refresh_lb(self, interaction: discord.Interaction):
         await interaction.response.defer(thinking=True)
-        reset_all_leaderboards(guild.id, exclude=["pingeur"])
-        await update_leaderboards(self.bot, guild)
-        await interaction.followup.send("✅ Leaderboards remis à zéro (sauf Pingeur).", ephemeral=True)
-
-    @tasks.loop(minutes=1)
-    async def _weekly_reset_task(self):
-        now = datetime.now(ZoneInfo("Europe/Paris"))
-        if now.weekday() == 0 and now.hour == 0 and now.minute == 0:  # Lundi 00:00
-            for g in self.bot.guilds:
-                try:
-                    reset_all_leaderboards(g.id, exclude=["pingeur"])
-                    await update_leaderboards(self.bot, g)
-                    print(f"[♻️] Reset hebdomadaire effectué pour {g.name}")
-                except Exception as e:
-                    print(f"[❌] Reset hebdo échoué pour {g.name}: {e}")
-            await discord.utils.sleep_until(datetime.now(ZoneInfo("Europe/Paris")).replace(second=59))
-
-    @_weekly_reset_task.before_loop
-    async def _before_weekly_reset_task(self):
-        await self.bot.wait_until_ready()
-
-    @app_commands.command(name="leaderboards-refresh", description="Force la mise à jour des embeds de leaderboards.")
-    @app_commands.checks.has_permissions(administrator=True)
-    async def leaderboards_refresh(self, interaction: discord.Interaction):
-        guild = interaction.guild
-        if not guild:
-            await interaction.response.send_message("❌ À utiliser dans un serveur.", ephemeral=True)
-            return
-        await interaction.response.defer(thinking=True)
-        await update_leaderboards(self.bot, guild)
-        await interaction.followup.send("🔄 Leaderboards rafraîchis.", ephemeral=True)
+        await update_leaderboards(self.bot, interaction.guild)
+        await interaction.followup.send("🔄 Leaderboards mis à jour.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
