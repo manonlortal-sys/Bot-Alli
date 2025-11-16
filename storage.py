@@ -1,11 +1,34 @@
 import sqlite3
 import time
+import json
+import os
 from typing import Optional, Tuple, List, Dict
 
 DB_PATH = "defense_leaderboard.db"
+LOG_FILE = "storage_attack_log.json"
 
 def utcnow_i() -> int:
     return int(time.time())
+
+
+# ============================================================
+#  JSON LOG HANDLING (centralisé)
+# ============================================================
+
+def _load_logs() -> dict:
+    """Charge le fichier storage_attack_log.json (historique des attaques)."""
+    if not os.path.exists(LOG_FILE):
+        return {}
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_logs(data: dict):
+    """Écrit l’historique des attaques dans storage_attack_log.json."""
+    with open(LOG_FILE, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
 
 
 # ============================================================
@@ -151,6 +174,7 @@ def upsert_guild_config(
     """, (guild_id, alert_channel_id, leaderboard_channel_id, snapshot_channel_id,
           role_g1_id, role_g2_id, role_g3_id, role_g4_id, role_test_id, admin_role_id))
 
+
 @with_db
 def get_guild_config(con, guild_id: int) -> Optional[dict]:
     row = con.execute("SELECT * FROM guild_config WHERE guild_id=?", (guild_id,)).fetchone()
@@ -172,6 +196,7 @@ def upsert_team(con, guild_id: int, team_id: int, name: str, role_id: int, label
             label=excluded.label,
             order_index=excluded.order_index
     """, (guild_id, team_id, name, role_id, label, order_index))
+
 
 @with_db
 def get_teams(con, guild_id: int) -> List[dict]:
@@ -200,28 +225,34 @@ def upsert_message(con, message_id, guild_id, channel_id, created_ts, creator_id
         con.execute("UPDATE messages SET team=?, last_ts=? WHERE message_id=?",
                     (team, utcnow_i(), message_id))
 
+
 @with_db
 def is_tracked_message(con, message_id: int) -> bool:
     return con.execute("SELECT 1 FROM messages WHERE message_id=?", (message_id,)).fetchone() is not None
+
 
 @with_db
 def get_message_creator(con, message_id: int) -> Optional[int]:
     row = con.execute("SELECT creator_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
     return row["creator_id"] if row else None
 
+
 @with_db
 def get_message_team(con, message_id: int) -> Optional[int]:
     row = con.execute("SELECT team FROM messages WHERE message_id=?", (message_id,)).fetchone()
     return row["team"] if row else None
+
 
 @with_db
 def get_message_outcome(con, message_id: int) -> Optional[str]:
     row = con.execute("SELECT outcome FROM messages WHERE message_id=?", (message_id,)).fetchone()
     return row["outcome"] if row else None
 
+
 @with_db
 def set_outcome(con, message_id: int, outcome: Optional[str]):
     con.execute("UPDATE messages SET outcome=?, last_ts=? WHERE message_id=?", (outcome, utcnow_i(), message_id))
+
 
 @with_db
 def set_incomplete(con, message_id: int, incomplete: bool):
@@ -243,10 +274,12 @@ def add_participant(con, message_id, user_id, added_by=None, source="reaction") 
     except sqlite3.IntegrityError:
         return False
 
+
 @with_db
 def remove_participant(con, message_id, user_id) -> bool:
     cur = con.execute("DELETE FROM participants WHERE message_id=? AND user_id=?", (message_id, user_id))
     return cur.rowcount > 0
+
 
 @with_db
 def get_participant_entry(con, message_id, user_id):
@@ -256,6 +289,7 @@ def get_participant_entry(con, message_id, user_id):
         WHERE message_id=? AND user_id=?
     """, (message_id, user_id)).fetchone()
     return (row["added_by"], row["source"], row["ts"]) if row else None
+
 
 @with_db
 def get_participants_detailed(con, message_id) -> List[Tuple[int, Optional[int], int]]:
@@ -267,6 +301,7 @@ def get_participants_detailed(con, message_id) -> List[Tuple[int, Optional[int],
     """, (message_id,)).fetchall()
     return [(r["user_id"], r["added_by"], r["ts"]) for r in rows]
 
+
 @with_db
 def get_first_defender(con, message_id: int) -> Optional[int]:
     row = con.execute("""
@@ -276,6 +311,7 @@ def get_first_defender(con, message_id: int) -> Optional[int]:
         ORDER BY ts ASC LIMIT 1
     """, (message_id,)).fetchone()
     return row["user_id"] if row else None
+
 
 @with_db
 def get_participants_user_ids(con, message_id: int) -> List[int]:
@@ -297,6 +333,7 @@ def incr_leaderboard(con, guild_id: int, type_: str, user_id: int):
         DO UPDATE SET count=count+1
     """, (guild_id, type_, user_id))
 
+
 @with_db
 def decr_leaderboard(con, guild_id: int, type_: str, user_id: int):
     con.execute("""
@@ -307,6 +344,7 @@ def decr_leaderboard(con, guild_id: int, type_: str, user_id: int):
         DELETE FROM leaderboard_totals
         WHERE guild_id=? AND type=? AND user_id=? AND count<=0
     """, (guild_id, type_, user_id))
+
 
 @with_db
 def get_leaderboard_totals(con, guild_id: int, type_: str, limit: int = 100):
@@ -319,6 +357,7 @@ def get_leaderboard_totals(con, guild_id: int, type_: str, limit: int = 100):
     """, (guild_id, type_, limit)).fetchall()
     return [(r["user_id"], r["count"]) for r in rows]
 
+
 @with_db
 def get_leaderboard_totals_all(con, guild_id: int, type_: str) -> Dict[int, int]:
     rows = con.execute("""
@@ -328,6 +367,7 @@ def get_leaderboard_totals_all(con, guild_id: int, type_: str) -> Dict[int, int]
         ORDER BY count DESC
     """, (guild_id, type_)).fetchall()
     return {r["user_id"]: r["count"] for r in rows}
+
 
 @with_db
 def get_leaderboard_value(con, guild_id: int, type_: str, user_id: int) -> int:
@@ -353,6 +393,7 @@ def set_leaderboard_post(con, guild_id: int, channel_id: int, message_id: int, k
             message_id=excluded.message_id
     """, (guild_id, key, channel_id, message_id))
 
+
 @with_db
 def get_leaderboard_post(con, guild_id: int, key: str) -> Optional[Tuple[int, int]]:
     row = con.execute("""
@@ -375,6 +416,7 @@ def get_message_info(con, message_id: int) -> Optional[Tuple[int, int]]:
         WHERE message_id=?
     """, (message_id,)).fetchone()
     return (row["guild_id"], row["creator_id"]) if row else None
+
 
 @with_db
 def delete_message_and_participants(con, message_id: int):
