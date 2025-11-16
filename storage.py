@@ -101,7 +101,7 @@ def create_db():
         )
     """)
 
-    # Attack – rapport / coops / cible
+    # Attack reports
     cur.execute("""
         CREATE TABLE IF NOT EXISTS attack_reports(
             report_id  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,6 +127,17 @@ def create_db():
             target   TEXT NOT NULL,
             count    INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (guild_id, target)
+        )
+    """)
+
+    # 🆕 TABLE POUR STOCKER LES MESSAGES DES LEADERBOARDS
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS leaderboard_posts(
+            guild_id    INTEGER NOT NULL,
+            storage_key TEXT NOT NULL,
+            channel_id  INTEGER NOT NULL,
+            message_id  INTEGER NOT NULL,
+            PRIMARY KEY (guild_id, storage_key)
         )
     """)
 
@@ -347,6 +358,49 @@ def get_leaderboard_value(con, guild_id: int, type_: str, user_id: int) -> int:
         WHERE guild_id=? AND type=? AND user_id=?
     """, (guild_id, type_, user_id)).fetchone()
     return row["count"] if row else 0
+
+# ==============================
+# LEADERBOARD POSTS (🆕)
+# ==============================
+@with_db
+def get_leaderboard_post(con, guild_id: int, storage_key: str):
+    row = con.execute("""
+        SELECT channel_id, message_id
+        FROM leaderboard_posts
+        WHERE guild_id=? AND storage_key=?
+    """, (guild_id, storage_key)).fetchone()
+    return (row["channel_id"], row["message_id"]) if row else None
+
+@with_db
+def set_leaderboard_post(con, guild_id: int, channel_id: int, message_id: int, storage_key: str):
+    con.execute("""
+        INSERT INTO leaderboard_posts(guild_id, storage_key, channel_id, message_id)
+        VALUES (?,?,?,?)
+        ON CONFLICT(guild_id, storage_key)
+        DO UPDATE SET channel_id=excluded.channel_id, message_id=excluded.message_id
+    """, (guild_id, storage_key, channel_id, message_id))
+
+# ==============================
+# AGGREGATES PAR TEAM (🆕)
+# ==============================
+@with_db
+def agg_totals_by_team(con, guild_id: int, team_id: int):
+    rows = con.execute("""
+        SELECT outcome, incomplete
+        FROM messages
+        WHERE guild_id=? AND team=?
+    """, (guild_id, team_id)).fetchall()
+
+    wins = losses = inc = 0
+    for r in rows:
+        if r["outcome"] == "win":
+            wins += 1
+        elif r["outcome"] == "loss":
+            losses += 1
+        if r["incomplete"]:
+            inc += 1
+
+    return wins, losses, inc, len(rows)
 
 # ==============================
 # MESSAGE DELETE
