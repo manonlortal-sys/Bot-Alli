@@ -30,15 +30,15 @@ EMOJI_JOIN = "👍"
 
 # Emojis personnalisés par équipe
 TEAM_EMOJIS: dict[int, discord.PartialEmoji] = {
-1: discord.PartialEmoji(name="Wanted", id=1421870161048375357),
-2: discord.PartialEmoji(name="Wanted", id=1421870161048375357),
-3: discord.PartialEmoji(name="Snowflake", id=1421870090588131441),
-4: discord.PartialEmoji(name="SecteurK", id=1421870011902988439),
-5: discord.PartialEmoji(name="Rixe", id=1438157003162648656),          # 🆕 RIXE
-6: discord.PartialEmoji(name="HagraTime", id=1422120372836503622),
-7: discord.PartialEmoji(name="HagraPasLtime", id=1422120467812323339),
-8: discord.PartialEmoji(name="Prisme", id=1422160491228434503),
-9: discord.PartialEmoji(name="Ruthless", id=1438157046770827304),       # 🆕 RUTHLESS
+    1: discord.PartialEmoji(name="Wanted", id=1421870161048375357),
+    2: discord.PartialEmoji(name="Wanted", id=1421870161048375357),
+    3: discord.PartialEmoji(name="Snowflake", id=1421870090588131441),
+    4: discord.PartialEmoji(name="SecteurK", id=1421870011902988439),
+    5: discord.PartialEmoji(name="Rixe", id=1438157003162648656),
+    6: discord.PartialEmoji(name="HagraTime", id=1422120372836503622),
+    7: discord.PartialEmoji(name="HagraPasLtime", id=1422120467812323339),
+    8: discord.PartialEmoji(name="Prisme", id=1422160491228434503),
+    9: discord.PartialEmoji(name="Ruthless", id=1438157046770827304),
 }
 
 ATTACKERS_PREFIX = "⚔️ Attaquants : "
@@ -46,7 +46,7 @@ ATTACKERS_PREFIX = "⚔️ Attaquants : "
 # Anti-spam : 1 alerte / 60s par équipe (clé = (guild_id, team_id))
 last_alerts: dict[tuple[int, int], float] = {}
 
-# ---------- Historique local (30 dernières attaques) ----------
+# ---------- Historique ----------
 def _load_logs():
     if not os.path.exists(LOG_FILE):
         return {}
@@ -68,7 +68,7 @@ def add_attack_log(guild_id: int, team_name: str, timestamp: int, message_id: in
         "team": team_name,
         "attackers": "—",
         "time": timestamp,
-        "message_id": message_id,  # 🆕 Identifiant du message d’alerte
+        "message_id": message_id,
     }
     logs.insert(0, entry)
     logs = logs[:MAX_ATTACKS]
@@ -295,22 +295,26 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
         creator_id=interaction.user.id,
         team=team_id,
     )
-    incr_leaderboard(guild.id, "pingeur", interaction.user.id)
+
+    # -------------------------------------------------------
+    # 🆕 IMPORTANT :
+    # ❌ On ne compte PAS les pings pour les teams Test (0) et Prisme (8)
+    # -------------------------------------------------------
+    if team_id not in (0, 8):
+        incr_leaderboard(guild.id, "pingeur", interaction.user.id)
 
     emb = await build_ping_embed(msg)
     await msg.edit(embed=emb, view=AddDefendersButtonView(bot, msg.id))
     await update_leaderboards(bot, guild)
 
-    # Historique 🆕 (ajout du message_id ici)
     add_attack_log(
         guild.id,
         next((t["name"] for t in get_teams(guild.id) if int(t["team_id"]) == int(team_id)), "Percepteur"),
         int(time.time()),
-        msg.id,  # 🆕 identifiant du message d’alerte
+        msg.id,
     )
     await update_attack_log_embed(bot, guild)
 
-    # 🔗 Alliance en attente (cog Attackers)
     attackers_cog = bot.get_cog("AttackersCog")
     if attackers_cog:
         await attackers_cog.apply_pending_attacker(msg, interaction.user.id)
