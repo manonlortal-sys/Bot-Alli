@@ -1,3 +1,4 @@
+# storage.py — PARTIE 1/3
 import sqlite3
 import time
 from typing import Optional, Tuple, List, Dict
@@ -11,7 +12,9 @@ def utcnow_i() -> int:
     return int(time.time())
 
 
-# ---------- Decorator ----------
+# ================================
+# 📌 DECORATOR DB
+# ================================
 def with_db(func):
     def wrapper(*args, **kwargs):
         con = sqlite3.connect(DB_PATH, timeout=10)
@@ -25,7 +28,9 @@ def with_db(func):
     return wrapper
 
 
-# ---------- Create / migrate DB ----------
+# ================================
+# 📌 CREATE / MIGRATE DATABASE
+# ================================
 def _column_exists(con: sqlite3.Connection, table: str, column: str) -> bool:
     cur = con.execute(f"PRAGMA table_info({table})")
     return any(row[1] == column for row in cur.fetchall())
@@ -35,6 +40,7 @@ def create_db():
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
 
+    # ---------- ALERTES DEFENSE ----------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS messages(
             message_id INTEGER PRIMARY KEY,
@@ -61,6 +67,7 @@ def create_db():
         )
     """)
 
+    # ---------- LEADERBOARDS ----------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS leaderboard_posts(
             guild_id   INTEGER,
@@ -81,16 +88,7 @@ def create_db():
         )
     """)
 
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS aggregates(
-            guild_id INTEGER NOT NULL,
-            scope    TEXT NOT NULL,
-            key      TEXT NOT NULL,
-            value    INTEGER NOT NULL,
-            PRIMARY KEY (guild_id, scope, key)
-        )
-    """)
-
+    # ---------- GUILDE & TEAMS ----------
     cur.execute("""
         CREATE TABLE IF NOT EXISTS guild_config(
             guild_id INTEGER PRIMARY KEY,
@@ -106,7 +104,6 @@ def create_db():
         )
     """)
 
-    # Table pour config des teams dynamiques (aucune limite de nombre)
     cur.execute("""
         CREATE TABLE IF NOT EXISTS team_config(
             guild_id    INTEGER NOT NULL,
@@ -119,7 +116,9 @@ def create_db():
         )
     """)
 
-    # ---------- Nouvelles tables pour /attaque ----------
+    # ================================
+    # 📌 ATTAQUES (/attaque)
+    # ================================
     cur.execute("""
         CREATE TABLE IF NOT EXISTS attack_reports(
             report_id  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -148,12 +147,11 @@ def create_db():
         )
     """)
 
-    # Index utiles pour /attaque
     cur.execute("CREATE INDEX IF NOT EXISTS idx_attack_reports_guild_ts ON attack_reports(guild_id, created_ts)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_attack_coops_report ON attack_report_coops(report_id)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_attack_target_totals_guild_count ON attack_target_totals(guild_id, count)")
 
-    # Migrations légères
+    # ---------- Migrations légères ----------
     try:
         if not _column_exists(con, "messages", "team"):
             cur.execute("ALTER TABLE messages ADD COLUMN team INTEGER")
@@ -165,708 +163,260 @@ def create_db():
     con.commit()
     con.close()
 
-# ---------- Guild config ----------
+# ================================
+# 📌 MESSAGES D’ALERTE (DEFENSE)
+# ================================
+
 @with_db
-def upsert_guild_config(
-    con: sqlite3.Connection,
-    guild_id: int,
-    alert_channel_id: int,
-    leaderboard_channel_id: int,
-    snapshot_channel_id: int,
-    role_g1_id: int,
-    role_g2_id: int,
-    role_g3_id: int,
-    role_g4_id: int,
-    role_test_id: int,
-    admin_role_id: int
-):
+def insert_message(con, message_id: int, guild_id: int, channel_id: int, creator_id: int, team: int):
     con.execute("""
-        INSERT INTO guild_config
-        (guild_id, alert_channel_id, leaderboard_channel_id, snapshot_channel_id,
-         role_g1_id, role_g2_id, role_g3_id, role_g4_id, role_test_id, admin_role_id)
-        VALUES (?,?,?,?,?,?,?,?,?,?)
-        ON CONFLICT(guild_id) DO UPDATE SET
-            alert_channel_id=excluded.alert_channel_id,
-            leaderboard_channel_id=excluded.leaderboard_channel_id,
-            snapshot_channel_id=excluded.snapshot_channel_id,
-            role_g1_id=excluded.role_g1_id,
-            role_g2_id=excluded.role_g2_id,
-            role_g3_id=excluded.role_g3_id,
-            role_g4_id=excluded.role_g4_id,
-            role_test_id=excluded.role_test_id,
-            admin_role_id=excluded.admin_role_id
-    """, (guild_id, alert_channel_id, leaderboard_channel_id, snapshot_channel_id,
-          role_g1_id, role_g2_id, role_g3_id, role_g4_id, role_test_id, admin_role_id))
+        INSERT OR REPLACE INTO messages(message_id, guild_id, channel_id, created_ts, last_ts, creator_id, team)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (message_id, guild_id, channel_id, utcnow_i(), utcnow_i(), creator_id, team))
+
 
 @with_db
-def get_guild_config(con: sqlite3.Connection, guild_id: int) -> Optional[dict]:
-    row = con.execute("SELECT * FROM guild_config WHERE guild_id=?", (guild_id,)).fetchone()
-    return dict(row) if row else None
+def is_tracked_message(con, message_id: int) -> bool:
+    cur = con.execute("SELECT 1 FROM messages WHERE message_id=?", (message_id,))
+    return cur.fetchone() is not None
 
-
-# ---------- Teams dynamiques ----------
-@with_db
-def upsert_team(
-    con: sqlite3.Connection,
-    guild_id: int,
-    team_id: int,
-    name: str,
-    role_id: int,
-    label: str,
-    order_index: int
-):
-    con.execute("""
-        INSERT INTO team_config(guild_id, team_id, name, role_id, label, order_index)
-        VALUES (?,?,?,?,?,?)
-        ON CONFLICT(guild_id, team_id) DO UPDATE SET
-            name=excluded.name,
-            role_id=excluded.role_id,
-            label=excluded.label,
-            order_index=excluded.order_index
-    """, (guild_id, team_id, name, role_id, label, order_index))
 
 @with_db
-def get_teams(con: sqlite3.Connection, guild_id: int) -> List[dict]:
-    rows = con.execute("""
-        SELECT team_id, name, role_id, label, order_index
-        FROM team_config
-        WHERE guild_id=?
-        ORDER BY order_index ASC
-    """, (guild_id,)).fetchall()
-    return [dict(r) for r in rows]
+def set_outcome(con, message_id: int, outcome: Optional[str]):
+    con.execute("UPDATE messages SET outcome=?, last_ts=? WHERE message_id=?",
+                (outcome, utcnow_i(), message_id))
 
-
-# ---------- Messages ----------
-@with_db
-def upsert_message(
-    con: sqlite3.Connection,
-    message_id: int,
-    guild_id: int,
-    channel_id: int,
-    created_ts: int,
-    creator_id: Optional[int] = None,
-    team: Optional[int] = None,
-):
-    con.execute("""
-        INSERT INTO messages(message_id, guild_id, channel_id, created_ts, outcome, incomplete, last_ts, creator_id, team, attack_incomplete)
-        VALUES (?,?,?,?,NULL,0,?,?,?,0)
-        ON CONFLICT(message_id) DO NOTHING
-    """, (message_id, guild_id, channel_id, created_ts, utcnow_i(), creator_id, team))
-    if team is not None:
-        con.execute("UPDATE messages SET team=?, last_ts=? WHERE message_id=?", (team, utcnow_i(), message_id))
 
 @with_db
-def is_tracked_message(con: sqlite3.Connection, message_id: int) -> bool:
-    row = con.execute("SELECT 1 FROM messages WHERE message_id=?", (message_id,)).fetchone()
-    return row is not None
+def set_incomplete(con, message_id: int, inc: bool):
+    con.execute("UPDATE messages SET incomplete=?, last_ts=? WHERE message_id=?",
+                (1 if inc else 0), utcnow_i(), message_id)
+
 
 @with_db
-def get_message_creator(con: sqlite3.Connection, message_id: int) -> Optional[int]:
-    row = con.execute("SELECT creator_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
-    return row["creator_id"] if row else None
+def get_message_outcome(con, message_id: int) -> Optional[str]:
+    cur = con.execute("SELECT outcome FROM messages WHERE message_id=?", (message_id,))
+    row = cur.fetchone()
+    return row["outcome"] if row else None
+
 
 @with_db
-def get_message_team(con: sqlite3.Connection, message_id: int) -> Optional[int]:
-    row = con.execute("SELECT team FROM messages WHERE message_id=?", (message_id,)).fetchone()
-    return int(row["team"]) if row and row["team"] is not None else None
+def get_message_info(con, message_id: int) -> Optional[Tuple[int, int]]:
+    cur = con.execute("SELECT guild_id, creator_id FROM messages WHERE message_id=?", (message_id,))
+    row = cur.fetchone()
+    return (row["guild_id"], row["creator_id"]) if row else None
+
+
+# ================================
+# 📌 PARTICIPANTS DES DEFENSES
+# ================================
 
 @with_db
-def get_message_outcome(con: sqlite3.Connection, message_id: int) -> Optional[str]:
-    row = con.execute("SELECT outcome FROM messages WHERE message_id=?", (message_id,)).fetchone()
-    return (row["outcome"] if row and row["outcome"] is not None else None)
-
-@with_db
-def set_outcome(con: sqlite3.Connection, message_id: int, outcome: Optional[str]):
-    con.execute("UPDATE messages SET outcome=?, last_ts=? WHERE message_id=?", (outcome, utcnow_i(), message_id))
-
-@with_db
-def set_incomplete(con: sqlite3.Connection, message_id: int, incomplete: bool):
-    con.execute("UPDATE messages SET incomplete=?, last_ts=? WHERE message_id=?", (1 if incomplete else 0, utcnow_i(), message_id))
-
-
-# ---------- Participants ----------
-@with_db
-def add_participant(
-    con: sqlite3.Connection,
-    message_id: int,
-    user_id: int,
-    added_by: Optional[int] = None,
-    source: str = "reaction"
-) -> bool:
+def add_participant(con, message_id: int, user_id: int, added_by: int, source: str) -> bool:
     try:
         con.execute("""
             INSERT INTO participants(message_id, user_id, added_by, source, ts)
-            VALUES (?,?,?,?,?)
+            VALUES (?, ?, ?, ?, ?)
         """, (message_id, user_id, added_by, source, utcnow_i()))
         return True
     except sqlite3.IntegrityError:
         return False
 
+
 @with_db
-def remove_participant(con: sqlite3.Connection, message_id: int, user_id: int) -> bool:
-    cur = con.cursor()
-    cur.execute("DELETE FROM participants WHERE message_id=? AND user_id=?", (message_id, user_id))
+def remove_participant(con, message_id: int, user_id: int) -> bool:
+    cur = con.execute("DELETE FROM participants WHERE message_id=? AND user_id=?",
+                      (message_id, user_id))
     return cur.rowcount > 0
 
+
 @with_db
-def get_participant_entry(con: sqlite3.Connection, message_id: int, user_id: int):
-    row = con.execute("""
-        SELECT added_by, source, ts
-        FROM participants
+def get_participant_entry(con, message_id: int, user_id: int):
+    cur = con.execute("""
+        SELECT added_by, source, ts FROM participants
         WHERE message_id=? AND user_id=?
-    """, (message_id, user_id)).fetchone()
+    """, (message_id, user_id))
+    row = cur.fetchone()
     return (row["added_by"], row["source"], row["ts"]) if row else None
 
-@with_db
-def get_participants_detailed(con: sqlite3.Connection, message_id: int) -> List[Tuple[int, Optional[int], int]]:
-    rows = con.execute("""
-        SELECT user_id, added_by, ts
-        FROM participants
-        WHERE message_id=?
-        ORDER BY ts ASC
-    """, (message_id,)).fetchall()
-    return [(r["user_id"], r["added_by"], r["ts"]) for r in rows]
 
 @with_db
-def get_first_defender(con: sqlite3.Connection, message_id: int) -> Optional[int]:
-    row = con.execute("""
-        SELECT user_id
-        FROM participants
+def get_participants_user_ids(con, message_id: int) -> List[int]:
+    cur = con.execute("SELECT user_id FROM participants WHERE message_id=?", (message_id,))
+    return [r["user_id"] for r in cur.fetchall()]
+
+
+@with_db
+def get_first_defender(con, message_id: int) -> Optional[int]:
+    cur = con.execute("""
+        SELECT user_id FROM participants
         WHERE message_id=?
-        ORDER BY ts ASC
-        LIMIT 1
-    """, (message_id,)).fetchone()
+        ORDER BY ts ASC LIMIT 1
+    """, (message_id,))
+    row = cur.fetchone()
     return row["user_id"] if row else None
 
-@with_db
-def get_participants_user_ids(con: sqlite3.Connection, message_id: int) -> List[int]:
-    rows = con.execute("SELECT user_id FROM participants WHERE message_id=?", (message_id,)).fetchall()
-    return [int(r["user_id"]) for r in rows]
-
-# ---------- Leaderboard counters ----------
-@with_db
-def incr_leaderboard(con: sqlite3.Connection, guild_id: int, type_: str, user_id: int):
-    con.execute("""
-        INSERT INTO leaderboard_totals(guild_id, type, user_id, count)
-        VALUES (?,?,?,1)
-        ON CONFLICT(guild_id, type, user_id) DO UPDATE SET count=count+1
-    """, (guild_id, type_, user_id))
 
 @with_db
-def decr_leaderboard(con: sqlite3.Connection, guild_id: int, type_: str, user_id: int):
-    con.execute("""
-        UPDATE leaderboard_totals
-        SET count = count - 1
-        WHERE guild_id=? AND type=? AND user_id=?
-    """, (guild_id, type_, user_id))
-    con.execute("""
-        DELETE FROM leaderboard_totals
-        WHERE guild_id=? AND type=? AND user_id=? AND count<=0
-    """, (guild_id, type_, user_id))
-
-@with_db
-def reset_leaderboard(con: sqlite3.Connection, guild_id: int, type_: str):
-    con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type=?", (guild_id, type_))
-
-@with_db
-def get_leaderboard_totals(con: sqlite3.Connection, guild_id: int, type_: str, limit: int = 100):
-    rows = con.execute("""
-        SELECT user_id, count
-        FROM leaderboard_totals
-        WHERE guild_id=? AND type=?
-        ORDER BY count DESC
-        LIMIT ?
-    """, (guild_id, type_, limit)).fetchall()
-    return [(r["user_id"], r["count"]) for r in rows]
-
-@with_db
-def get_leaderboard_totals_all(con: sqlite3.Connection, guild_id: int, type_: str) -> Dict[int, int]:
-    rows = con.execute("""
-        SELECT user_id, count
-        FROM leaderboard_totals
-        WHERE guild_id=? AND type=?
-        ORDER BY count DESC
-    """, (guild_id, type_)).fetchall()
-    return {r["user_id"]: r["count"] for r in rows}
-
-@with_db
-def get_leaderboard_value(con: sqlite3.Connection, guild_id: int, type_: str, user_id: int) -> int:
-    row = con.execute("""
-        SELECT count FROM leaderboard_totals
-        WHERE guild_id=? AND type=? AND user_id=?
-    """, (guild_id, type_, user_id)).fetchone()
-    return int(row["count"]) if row else 0
-
-
-# ---------- Leaderboard posts ----------
-@with_db
-def get_leaderboard_post(con: sqlite3.Connection, guild_id: int, type_: str):
-    row = con.execute("""
-        SELECT channel_id, message_id
-        FROM leaderboard_posts
-        WHERE guild_id=? AND type=?
-    """, (guild_id, type_)).fetchone()
-    return (row["channel_id"], row["message_id"]) if row else None
-
-@with_db
-def set_leaderboard_post(con: sqlite3.Connection, guild_id: int, channel_id: int, message_id: int, type_: str):
-    con.execute("""
-        INSERT INTO leaderboard_posts(guild_id, channel_id, message_id, type)
-        VALUES (?,?,?,?)
-        ON CONFLICT(guild_id, type) DO UPDATE
-        SET channel_id=excluded.channel_id, message_id=excluded.message_id
-    """, (guild_id, channel_id, message_id, type_))
-
-
-# ---------- Aggregates (baseline & snapshots) ----------
-def _set_aggregate_txn(con: sqlite3.Connection, guild_id: int, scope: str, key: str, value: int):
-    con.execute("""
-        INSERT INTO aggregates(guild_id, scope, key, value)
-        VALUES (?,?,?,?)
-        ON CONFLICT(guild_id, scope, key) DO UPDATE SET value=excluded.value
-    """, (guild_id, scope, key, value))
-
-@with_db
-def set_aggregate(con: sqlite3.Connection, guild_id: int, scope: str, key: str, value: int):
-    _set_aggregate_txn(con, guild_id, scope, key, value)
-
-@with_db
-def get_aggregate(con: sqlite3.Connection, guild_id: int, scope: str, key: str) -> int:
-    row = con.execute("""
-        SELECT value FROM aggregates
-        WHERE guild_id=? AND scope=? AND key=?
-    """, (guild_id, scope, key)).fetchone()
-    return int(row["value"]) if row else 0
-
-@with_db
-def seed_aggregates_dynamic(
-    con: sqlite3.Connection,
-    guild_id: int,
-    global_tot: Dict[str, int],
-    team_totals: Dict[int, Dict[str, int]],
-    hourly: Dict[str, int],
-):
-    con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
-    for key in ("attacks", "wins", "losses", "incomplete"):
-        _set_aggregate_txn(con, guild_id, "global", key, int((global_tot or {}).get(key, 0)))
-    for team_id, vals in (team_totals or {}).items():
-        scope = f"team:{int(team_id)}"
-        for key, val in (vals or {}).items():
-            _set_aggregate_txn(con, guild_id, scope, key, int(val))
-    for key in ("morning", "afternoon", "evening", "night"):
-        _set_aggregate_txn(con, guild_id, "hourly", key, int((hourly or {}).get(key, 0)))
-
-@with_db
-def seed_aggregates(
-    con: sqlite3.Connection,
-    guild_id: int,
-    global_tot: dict,
-    team1: dict,
-    team2: dict,
-    hourly: dict,
-    team3: Optional[dict] = None,
-    team4: Optional[dict] = None,
-):
-    team_totals = {}
-    if team1 is not None:
-        team_totals[1] = {k: int(v) for k, v in team1.items()}
-    if team2 is not None:
-        team_totals[2] = {k: int(v) for k, v in team2.items()}
-    if team3 is not None:
-        team_totals[3] = {k: int(v) for k, v in team3.items()}
-    if team4 is not None:
-        team_totals[4] = {k: int(v) for k, v in team4.items()}
-    seed_aggregates_dynamic(guild_id, global_tot or {}, team_totals, hourly or {})
-
-@with_db
-def seed_leaderboard_totals(con: sqlite3.Connection, guild_id: int, type_: str, totals: Dict[int, int]):
-    con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type=?", (guild_id, type_))
-    for uid, cnt in (totals or {}).items():
-        con.execute("""
-            INSERT INTO leaderboard_totals(guild_id, type, user_id, count)
-            VALUES (?,?,?,?)
-        """, (guild_id, type_, int(uid), int(cnt)))
-
-@with_db
-def clear_baseline(con: sqlite3.Connection, guild_id: int):
-    con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
-    con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type IN ('defense','pingeur','win','loss')", (guild_id,))
-
-# ---------- Aggregates-aware readers ----------
-@with_db
-def agg_totals_all(con: sqlite3.Connection, guild_id: int) -> Tuple[int, int, int, int]:
-    row = con.execute("""
-        SELECT
-            SUM(CASE WHEN outcome='win'  THEN 1 ELSE 0 END) AS w,
-            SUM(CASE WHEN outcome='loss' THEN 1 ELSE 0 END) AS l,
-            SUM(CASE WHEN incomplete=1  THEN 1 ELSE 0 END) AS inc,
-            COUNT(*) AS tot
-        FROM messages
-        WHERE guild_id=?
-    """, (guild_id,)).fetchone()
-    w_live = int(row["w"] or 0)
-    l_live = int(row["l"] or 0)
-    inc_live = int(row["inc"] or 0)
-    att_live = int(row["tot"] or 0)
-
-    w_base  = get_aggregate(guild_id, "global", "wins")
-    l_base  = get_aggregate(guild_id, "global", "losses")
-    inc_base = get_aggregate(guild_id, "global", "incomplete")
-    att_base = get_aggregate(guild_id, "global", "attacks")
-
-    return (w_base + w_live, l_base + l_live, inc_base + inc_live, att_base + att_live)
-
-@with_db
-def agg_totals_by_team(con: sqlite3.Connection, guild_id: int, team: int) -> Tuple[int, int, int, int]:
-    row = con.execute("""
-        SELECT
-            SUM(CASE WHEN outcome='win'  THEN 1 ELSE 0 END) AS w,
-            SUM(CASE WHEN outcome='loss' THEN 1 ELSE 0 END) AS l,
-            SUM(CASE WHEN incomplete=1  THEN 1 ELSE 0 END) AS inc,
-            COUNT(*) AS tot
-        FROM messages
-        WHERE guild_id=? AND team=?
-    """, (guild_id, team)).fetchone()
-    w_live = int(row["w"] or 0)
-    l_live = int(row["l"] or 0)
-    inc_live = int(row["inc"] or 0)
-    att_live = int(row["tot"] or 0)
-
-    scope = f"team:{int(team)}"
-    w_base  = get_aggregate(guild_id, scope, "wins")
-    l_base  = get_aggregate(guild_id, scope, "losses")
-    inc_base = get_aggregate(guild_id, scope, "incomplete")
-    att_base = get_aggregate(guild_id, scope, "attacks")
-
-    return (w_base + w_live, l_base + l_live, inc_base + inc_live, att_base + att_live)
-
-@with_db
-def hourly_split_all(con: sqlite3.Connection, guild_id: int) -> Tuple[int, int, int, int]:
-    rows = con.execute("SELECT created_ts FROM messages WHERE guild_id=?", (guild_id,)).fetchall()
-    live_counts = [0, 0, 0, 0]
-    for (ts,) in rows:
-        dt_paris = datetime.fromtimestamp(int(ts), tz=timezone.utc).astimezone(ZoneInfo("Europe/Paris"))
-        h = dt_paris.hour
-        if 6 <= h < 10:
-            live_counts[0] += 1
-        elif 10 <= h < 18:
-            live_counts[1] += 1
-        elif 18 <= h < 24:
-            live_counts[2] += 1
-        else:
-            live_counts[3] += 1
-
-    base_counts = [
-        get_aggregate(guild_id, "hourly", "morning"),
-        get_aggregate(guild_id, "hourly", "afternoon"),
-        get_aggregate(guild_id, "hourly", "evening"),
-        get_aggregate(guild_id, "hourly", "night"),
-    ]
-    return tuple(base_counts[i] + live_counts[i] for i in range(4))
-
-
-# ---------- Stats helpers pour snapshot ----------
-@with_db
-def get_wins_by_user(con: sqlite3.Connection, guild_id: int) -> Dict[int, int]:
-    rows = con.execute("""
-        SELECT p.user_id AS uid, COUNT(*) AS c
-        FROM participants p
-        JOIN messages m ON m.message_id = p.message_id
-        WHERE m.guild_id=? AND m.outcome='win'
-        GROUP BY p.user_id
-    """, (guild_id,)).fetchall()
-    return {int(r["uid"]): int(r["c"]) for r in rows}
-
-@with_db
-def get_losses_by_user(con: sqlite3.Connection, guild_id: int) -> Dict[int, int]:
-    rows = con.execute("""
-        SELECT p.user_id AS uid, COUNT(*) AS c
-        FROM participants p
-        JOIN messages m ON m.message_id = p.message_id
-        WHERE m.guild_id=? AND m.outcome='loss'
-        GROUP BY p.user_id
-    """, (guild_id,)).fetchall()
-    return {int(r["uid"]): int(r["c"]) for r in rows}
-
-
-# ---------- Helpers suppression / info ----------
-@with_db
-def get_message_info(con: sqlite3.Connection, message_id: int):
-    row = con.execute("SELECT guild_id, creator_id FROM messages WHERE message_id=?", (message_id,)).fetchone()
-    if not row:
-        return None
-    return int(row["guild_id"]), (int(row["creator_id"]) if row["creator_id"] is not None else None)
-
-@with_db
-def delete_message_and_participants(con: sqlite3.Connection, message_id: int):
+def delete_message_and_participants(con, message_id: int):
     con.execute("DELETE FROM participants WHERE message_id=?", (message_id,))
     con.execute("DELETE FROM messages WHERE message_id=?", (message_id,))
 
 
-# ---------- Player stats (legacy) ----------
-@with_db
-def get_player_stats(con: sqlite3.Connection, guild_id: int, user_id: int) -> Tuple[int, int, int, int]:
-    row = con.execute("""
-        SELECT COUNT(*) AS c
-        FROM participants p
-        JOIN messages m ON m.message_id = p.message_id
-        WHERE m.guild_id = ? AND p.user_id = ?
-    """, (guild_id, user_id)).fetchone()
-    defenses = int(row["c"] or 0)
-
-    row = con.execute("""
-        SELECT COUNT(*) AS c
-        FROM messages
-        WHERE guild_id = ? AND creator_id = ?
-    """, (guild_id, user_id)).fetchone()
-    pings = int(row["c"] or 0)
-
-    row = con.execute("""
-        SELECT
-            SUM(CASE WHEN m.outcome='win'  THEN 1 ELSE 0 END) AS w,
-            SUM(CASE WHEN m.outcome='loss' THEN 1 ELSE 0 END) AS l
-        FROM messages m
-        JOIN participants p ON m.message_id = p.message_id
-        WHERE m.guild_id = ? AND p.user_id = ?
-    """, (guild_id, user_id)).fetchone()
-    wins   = int(row["w"] or 0)
-    losses = int(row["l"] or 0)
-
-    return defenses, pings, wins, losses
+# ================================
+# 📌 LEADERBOARD — GLOBAL COUNTERS
+# ================================
 
 @with_db
-def get_player_recent_defenses(con: sqlite3.Connection, guild_id: int, user_id: int, limit: int = 3) -> List[Tuple[int, Optional[str]]]:
-    rows = con.execute("""
-        SELECT m.created_ts, m.outcome
-        FROM messages m
-        JOIN participants p ON m.message_id = p.message_id
-        WHERE m.guild_id = ? AND p.user_id = ?
-        ORDER BY m.created_ts DESC
-        LIMIT ?
-    """, (guild_id, user_id, limit)).fetchall()
-    return [(int(r["created_ts"]), r["outcome"]) for r in rows]
-
-@with_db
-def get_player_hourly_counts(con: sqlite3.Connection, guild_id: int, user_id: int) -> Tuple[int, int, int, int]:
-    rows = con.execute("""
-        SELECT m.created_ts
-        FROM messages m
-        JOIN participants p ON m.message_id = p.message_id
-        WHERE m.guild_id = ? AND p.user_id = ?
-    """, (guild_id, user_id)).fetchall()
-    counts = [0, 0, 0, 0]
-    for r in rows:
-        ts = int(r["created_ts"])
-        dt_paris = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(ZoneInfo("Europe/Paris"))
-        h = dt_paris.hour
-        if 6 <= h < 10:
-            counts[0] += 1
-        elif 10 <= h < 18:
-            counts[1] += 1
-        elif 18 <= h < 24:
-            counts[2] += 1
-        else:
-            counts[3] += 1
-    return tuple(counts)
-
-
-# ==================================================
-# ===============  ATTAQUES  (/attaque)  ===========
-# ==================================================
-
-@with_db
-def insert_attack_report(
-    con: sqlite3.Connection,
-    guild_id: int,
-    message_id: int,
-    author_id: int,
-    coops: List[int],
-    target: Optional[str],
-    created_ts: Optional[int] = None,
-) -> int:
-    ts = int(created_ts or utcnow_i())
-    tgt = (target or "").strip()
-
-    cur = con.cursor()
-    cur.execute("""
-        INSERT INTO attack_reports(guild_id, message_id, author_id, target, created_ts)
-        VALUES (?,?,?,?,?)
-    """, (guild_id, message_id, author_id, tgt if tgt else None, ts))
-    report_id = int(cur.lastrowid)
-
-    seen = set()
-    for uid in (coops or []):
-        try:
-            uid_i = int(uid)
-        except Exception:
-            continue
-        if uid_i in seen:
-            continue
-        seen.add(uid_i)
-        cur.execute("""
-            INSERT OR IGNORE INTO attack_report_coops(report_id, user_id)
-            VALUES (?,?)
-        """, (report_id, uid_i))
-
+def incr_leaderboard(con, guild_id: int, lb_type: str, user_id: int):
     con.execute("""
         INSERT INTO leaderboard_totals(guild_id, type, user_id, count)
-        VALUES (?,?,?,1)
-        ON CONFLICT(guild_id, type, user_id) DO UPDATE SET count=count+1
-    """, (guild_id, "attack", int(author_id)))
-    for uid in seen:
-        con.execute("""
-            INSERT INTO leaderboard_totals(guild_id, type, user_id, count)
-            VALUES (?,?,?,1)
-            ON CONFLICT(guild_id, type, user_id) DO UPDATE SET count=count+1
-        """, (guild_id, "attack", int(uid)))
+        VALUES (?, ?, ?, 1)
+        ON CONFLICT(guild_id, type, user_id)
+        DO UPDATE SET count = count + 1
+    """, (guild_id, lb_type, user_id))
 
-    if tgt:
-        con.execute("""
-            INSERT INTO attack_target_totals(guild_id, target, count)
-            VALUES (?,?,1)
-            ON CONFLICT(guild_id, target) DO UPDATE SET count=count+1
-        """, (guild_id, tgt))
-
-    return report_id
-
-
-# ---------- Lecture / affichage Leaderboard Attaques ----------
-@with_db
-def get_attack_top_users(con: sqlite3.Connection, guild_id: int, limit: int = 30) -> List[Tuple[int, int]]:
-    rows = con.execute("""
-        SELECT user_id, count
-        FROM leaderboard_totals
-        WHERE guild_id=? AND type='attack'
-        ORDER BY count DESC
-        LIMIT ?
-    """, (guild_id, limit)).fetchall()
-    return [(int(r["user_id"]), int(r["count"])) for r in rows]
 
 @with_db
-def get_attack_top_targets(con: sqlite3.Connection, guild_id: int, limit: int = 30) -> List[Tuple[str, int]]:
-    rows = con.execute("""
-        SELECT target, count
-        FROM attack_target_totals
-        WHERE guild_id=?
-        ORDER BY count DESC
-        LIMIT ?
-    """, (guild_id, limit)).fetchall()
-    return [(str(r["target"]), int(r["count"])) for r in rows]
-
-@with_db
-def get_attack_total_reports(con: sqlite3.Connection, guild_id: int) -> int:
-    row = con.execute("""
-        SELECT COUNT(*) AS c
-        FROM attack_reports
-        WHERE guild_id=?
-    """, (guild_id,)).fetchone()
-    return int(row["c"] or 0)
-
-
-# ---------- Dump complet pour snapshot ----------
-@with_db
-def get_attacks_by_user_all(con: sqlite3.Connection, guild_id: int) -> Dict[int, int]:
-    rows = con.execute("""
-        SELECT user_id, count
-        FROM leaderboard_totals
-        WHERE guild_id=? AND type='attack'
-        ORDER BY count DESC
-    """, (guild_id,)).fetchall()
-    return {int(r["user_id"]): int(r["count"]) for r in rows}
-
-@with_db
-def get_attacks_by_target_all(con: sqlite3.Connection, guild_id: int) -> Dict[str, int]:
-    rows = con.execute("""
-        SELECT target, count
-        FROM attack_target_totals
-        WHERE guild_id=?
-        ORDER BY count DESC
-    """, (guild_id,)).fetchall()
-    return {str(r["target"]): int(r["count"]) for r in rows}
-
-
-# ---------- Seed/restore pour snapshot ----------
-@with_db
-def seed_attack_user_totals(con: sqlite3.Connection, guild_id: int, totals: Dict[int, int]):
-    con.execute("DELETE FROM leaderboard_totals WHERE guild_id=? AND type='attack'", (guild_id,))
-    for uid, cnt in (totals or {}).items():
-        con.execute("""
-            INSERT INTO leaderboard_totals(guild_id, type, user_id, count)
-            VALUES (?,?,?,?)
-        """, (guild_id, "attack", int(uid), int(cnt)))
-
-@with_db
-def seed_attack_target_totals(con: sqlite3.Connection, guild_id: int, totals: Dict[str, int]):
-    con.execute("DELETE FROM attack_target_totals WHERE guild_id=?", (guild_id,))
-    for tgt, cnt in (totals or {}).items():
-        con.execute("""
-            INSERT INTO attack_target_totals(guild_id, target, count)
-            VALUES (?,?,?)
-        """, (guild_id, str(tgt), int(cnt)))
-
-
-# ---------- Helpers reverse (suppression d'un rapport d'attaque) ----------
-@with_db
-def get_attack_report_by_message(con: sqlite3.Connection, guild_id: int, message_id: int):
-    row = con.execute("""
-        SELECT report_id, author_id, target
-        FROM attack_reports
-        WHERE guild_id=? AND message_id=?
-    """, (guild_id, message_id)).fetchone()
-    if not row:
-        return None
-    return int(row["report_id"]), int(row["author_id"]), (row["target"] or None)
-
-@with_db
-def get_attack_report_coops(con: sqlite3.Connection, report_id: int) -> List[int]:
-    rows = con.execute("""
-        SELECT user_id
-        FROM attack_report_coops
-        WHERE report_id=?
-    """, (report_id,)).fetchall()
-    return [int(r["user_id"]) for r in rows]
-
-@with_db
-def remove_attack_report(con: sqlite3.Connection, report_id: int):
-    con.execute("DELETE FROM attack_report_coops WHERE report_id=?", (report_id,))
-    con.execute("DELETE FROM attack_reports WHERE report_id=?", (report_id,))
-
-@with_db
-def decr_attack_user(con: sqlite3.Connection, guild_id: int, user_id: int):
+def decr_leaderboard(con, guild_id: int, lb_type: str, user_id: int):
     con.execute("""
         UPDATE leaderboard_totals
-        SET count = count - 1
-        WHERE guild_id=? AND type='attack' AND user_id=?
-    """, (guild_id, user_id))
-    con.execute("""
-        DELETE FROM leaderboard_totals
-        WHERE guild_id=? AND type='attack' AND user_id=? AND count<=0
-    """, (guild_id, user_id))
+        SET count = MAX(count - 1, 0)
+        WHERE guild_id=? AND type=? AND user_id=?
+    """, (guild_id, lb_type, user_id))
+
 
 @with_db
-def decr_attack_target(con: sqlite3.Connection, guild_id: int, target: str):
-    con.execute("""
-        UPDATE attack_target_totals
-        SET count = count - 1
-        WHERE guild_id=? AND target=?
-    """, (guild_id, target))
-    con.execute("""
-        DELETE FROM attack_target_totals
-        WHERE guild_id=? AND target=? AND count<=0
-    """, (guild_id, target))
+def get_leaderboard_totals(con, guild_id: int, lb_type: str, limit: int = 100) -> List[Tuple[int, int]]:
+    cur = con.execute("""
+        SELECT user_id, count
+        FROM leaderboard_totals
+        WHERE guild_id=? AND type=?
+        ORDER BY count DESC
+        LIMIT ?
+    """, (guild_id, lb_type, limit))
+    return [(row["user_id"], row["count"]) for row in cur.fetchall()]
 
-# ---------- Reset complet des leaderboards ----------
+
 @with_db
-def reset_all_leaderboards(con: sqlite3.Connection, guild_id: int, exclude: list[str] = []):
-    """Supprime toutes les données de leaderboard pour le serveur, sauf celles indiquées dans exclude."""
-    placeholders = ",".join("?" * len(exclude)) if exclude else None
-    if exclude:
-        con.execute(
-            f"DELETE FROM leaderboard_totals WHERE guild_id=? AND type NOT IN ({placeholders})",
-            (guild_id, *exclude),
-        )
-    else:
-        con.execute("DELETE FROM leaderboard_totals WHERE guild_id=?", (guild_id,))
-    # On peut aussi purger les agrégats pour repartir à zéro
-    con.execute("DELETE FROM aggregates WHERE guild_id=?", (guild_id,))
+def get_leaderboard_value(con, guild_id: int, lb_type: str, user_id: int) -> int:
+    cur = con.execute("""
+        SELECT count FROM leaderboard_totals
+        WHERE guild_id=? AND type=? AND user_id=?
+    """, (guild_id, lb_type, user_id))
+    row = cur.fetchone()
+    return row["count"] if row else 0
 
+
+# ================================
+# 📌 GUILDS / TEAMS CONFIG
+# ================================
+
+@with_db
+def get_guild_config(con, guild_id: int) -> Optional[Dict]:
+    cur = con.execute("SELECT * FROM guild_config WHERE guild_id=?", (guild_id,))
+    row = cur.fetchone()
+    return dict(row) if row else None
+
+
+@with_db
+def get_teams(con, guild_id: int) -> List[Dict]:
+    cur = con.execute("""
+        SELECT * FROM team_config
+        WHERE guild_id=? ORDER BY order_index ASC
+    """, (guild_id,))
+    return [dict(r) for r in cur.fetchall()]
+
+
+@with_db
+def get_leaderboard_post(con, guild_id: int, lb_type: str) -> Optional[Tuple[int, int]]:
+    cur = con.execute("""
+        SELECT channel_id, message_id
+        FROM leaderboard_posts
+        WHERE guild_id=? AND type=?
+    """, (guild_id, lb_type))
+    row = cur.fetchone()
+    return (row["channel_id"], row["message_id"]) if row else None
+
+
+@with_db
+def set_leaderboard_post(con, guild_id: int, channel_id: int, message_id: int, lb_type: str):
+    con.execute("""
+        INSERT OR REPLACE INTO leaderboard_posts(guild_id, channel_id, message_id, type)
+        VALUES (?, ?, ?, ?)
+    """, (guild_id, channel_id, message_id, lb_type))
+
+# ================================
+# 📁 ATTACK LOG (JSON)
+# ================================
+
+import json
+from typing import Dict, List
+from .utils import LOG_FILE
+
+def _load_logs() -> dict:
+    """Charge le fichier JSON contenant l’historique des attaques."""
+    try:
+        with open(LOG_FILE, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _save_logs(data: dict):
+    """Sauvegarde l’historique dans le fichier JSON."""
+    try:
+        with open(LOG_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+# --------------------------------
+# 🧩 UTILITAIRES D'ACCÈS
+# --------------------------------
+
+def add_attack_log_entry(guild_id: int, message_id: int, team_name: str, timestamp: int):
+    """Ajoute une nouvelle entrée dans l’historique (appelée lors d’une nouvelle alerte)."""
+    data = _load_logs()
+    logs = data.get(str(guild_id), [])
+
+    logs.insert(0, {
+        "message_id": message_id,
+        "team": team_name,
+        "time": timestamp,
+        "attackers": "—"
+    })
+
+    data[str(guild_id)] = logs[:30]  # conserve les 30 dernières attaques
+    _save_logs(data)
+
+
+def update_attack_log_entry(guild_id: int, message_id: int, alliance_name: str):
+    """Met à jour les attaquants pour une alerte déjà enregistrée."""
+    data = _load_logs()
+    logs = data.get(str(guild_id), [])
+
+    for entry in logs:
+        if str(entry.get("message_id")) == str(message_id):
+            entry["attackers"] = alliance_name
+            break
+
+    data[str(guild_id)] = logs[:30]
+    _save_logs(data)
+
+
+def delete_attack_log_entry(guild_id: int, team_name: str):
+    """Supprime l’entrée correspondant à une guilde attaquée (si l’alerte est supprimée)."""
+    data = _load_logs()
+    logs = data.get(str(guild_id), [])
+
+    logs = [l for l in logs if l.get("team", "").lower() != team_name.lower()]
+
+    data[str(guild_id)] = logs[:30]
+    _save_logs(data)
+
+
+def get_attack_logs(guild_id: int) -> List[dict]:
+    """Retourne les dernières attaques enregistrées."""
+    data = _load_logs()
+    return data.get(str(guild_id), [])
