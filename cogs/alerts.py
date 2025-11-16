@@ -17,10 +17,6 @@ from storage import (
 )
 from cogs.leaderboard import update_leaderboards
 
-
-# ================
-# CONSTANTES
-# ================
 LOG_FILE = "storage_attack_log.json"
 MAX_ATTACKS = 30
 
@@ -30,14 +26,10 @@ EMOJI_INCOMP = "😡"
 EMOJI_JOIN = "👍"
 
 ATTACKERS_PREFIX = "⚔️ Attaquants : "
-
-# anti-spam : 1 alerte / 60 sec par team
 last_alerts: dict[tuple[int, int], float] = {}
 
 
-# ================
-# LOG JSON
-# ================
+# ---------------- LOG JSON ----------------
 
 def _load_logs():
     if not os.path.exists(LOG_FILE):
@@ -45,7 +37,7 @@ def _load_logs():
     try:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except:
         return {}
 
 
@@ -76,8 +68,7 @@ async def update_attack_log_embed(bot: commands.Bot, guild: discord.Guild):
     cfg = get_guild_config(guild.id)
     if not cfg:
         return
-    channel_id = cfg["snapshot_channel_id"]
-    channel = guild.get_channel(channel_id)
+    channel = guild.get_channel(cfg["snapshot_channel_id"])
     if not channel:
         return
 
@@ -113,9 +104,7 @@ async def update_attack_log_embed(bot: commands.Bot, guild: discord.Guild):
     await channel.send(embed=embed)
 
 
-# ================
-# HELPERS
-# ================
+# ---------------- HELPERS ----------------
 
 def _parse_attackers_from_embed(msg: discord.Message) -> List[str]:
     if not msg.embeds:
@@ -176,7 +165,6 @@ async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] 
     for a in attackers:
         etat += f"\n{ATTACKERS_PREFIX}{a}"
 
-    # team
     team_id = get_message_team(msg.id)
     team_name = next(
         (t["name"] for t in get_teams(msg.guild.id) if int(t["team_id"]) == int(team_id)),
@@ -201,9 +189,7 @@ async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] 
     return embed
 
 
-# ================
-# MODAL ATTAQUANT
-# ================
+# ---------------- MODAL ATTAQUANT ----------------
 
 class AttackerModal(discord.ui.Modal, title="Ajouter des attaquants"):
     attackers = discord.ui.TextInput(
@@ -229,13 +215,8 @@ class AttackerModal(discord.ui.Modal, title="Ajouter des attaquants"):
         new_list = current + [a for a in items if a not in current]
 
         emb = await build_ping_embed(self.msg, attackers=new_list)
-        try:
-            await self.msg.edit(embed=emb)
-        except:
-            await interaction.response.send_message("Erreur mise à jour.", ephemeral=True)
-            return
+        await self.msg.edit(embed=emb)
 
-        # maj logs
         data = _load_logs()
         logs = data.get(str(self.msg.guild.id), [])
         for entry in logs:
@@ -245,13 +226,10 @@ class AttackerModal(discord.ui.Modal, title="Ajouter des attaquants"):
         _save_logs(data)
 
         await update_attack_log_embed(self.bot, self.msg.guild)
+        await interaction.response.send_message("Attaquants ajoutés.", ephemeral=True)
 
-        await interaction.response.send_message("✅ Attaquants ajoutés.", ephemeral=True)
 
-
-# ================
-# VIEWS
-# ================
+# ---------------- VIEWS ----------------
 
 class AddDefendersSelectView(discord.ui.View):
     def __init__(self, bot, message_id, claimer_id):
@@ -271,7 +249,7 @@ class AddDefendersSelectView(discord.ui.View):
         await interaction.response.defer(ephemeral=True)
 
         guild = interaction.guild
-        channel = guild.get_channel(interaction.channel_id) or guild.get_thread(interaction.channel_id)
+        channel = guild.get_channel(interaction.channel_id)
         msg = await channel.fetch_message(self.message_id)
 
         inserted_any = False
@@ -283,11 +261,7 @@ class AddDefendersSelectView(discord.ui.View):
 
         if inserted_any:
             emb = await build_ping_embed(msg)
-            try:
-                await msg.edit(embed=emb)
-            except:
-                pass
-
+            await msg.edit(embed=emb)
             await update_leaderboards(self.bot, guild)
 
         await interaction.followup.send("Ajout effectué.", ephemeral=True)
@@ -302,7 +276,7 @@ class AddDefendersButtonView(discord.ui.View):
 
     @discord.ui.button(label="Ajouter défenseurs", style=discord.ButtonStyle.primary, emoji="🛡️")
     async def add_def(self, interaction, button):
-        channel = interaction.guild.get_channel(interaction.channel_id) or interaction.guild.get_thread(interaction.channel_id)
+        channel = interaction.guild.get_channel(interaction.channel_id)
         msg = await channel.fetch_message(self.message_id)
 
         await interaction.response.send_message(
@@ -319,18 +293,13 @@ class AddDefendersButtonView(discord.ui.View):
 
     @discord.ui.button(label="Solo", style=discord.ButtonStyle.secondary, emoji="🧍")
     async def delete_alert(self, interaction, button):
-        try:
-            channel = interaction.guild.get_channel(interaction.channel_id)
-            msg = await channel.fetch_message(self.message_id)
-            await msg.delete()
-            await interaction.response.send_message("Alerte supprimée.", ephemeral=True)
-        except Exception as e:
-            await interaction.response.send_message(f"Erreur suppression : {e}", ephemeral=True)
+        channel = interaction.guild.get_channel(interaction.channel_id)
+        msg = await channel.fetch_message(self.message_id)
+        await msg.delete()
+        await interaction.response.send_message("Alerte supprimée.", ephemeral=True)
 
 
-# ================
-# ENVOI ALERTE
-# ================
+# ---------------- ENVOI ALERT ----------------
 
 async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
     cfg = get_guild_config(guild.id)
@@ -348,8 +317,7 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
 
     await interaction.response.defer(ephemeral=True)
 
-    role_ping = f"<@&{role_id}>"
-    msg = await alert_channel.send(f"{role_ping} — **Percepteur attaqué !**")
+    msg = await alert_channel.send(f"<@&{role_id}> — **Percepteur attaqué !**")
 
     upsert_message(
         msg.id, guild.id, msg.channel.id,
@@ -358,7 +326,6 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
         team=team_id,
     )
 
-    # pingeur (pas test ni prisme)
     if team_id not in (0, 8):
         incr_leaderboard(guild.id, "pingeur", interaction.user.id)
 
@@ -367,25 +334,21 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
 
     await update_leaderboards(bot, guild)
 
-    # historique JSON
-    tname = next(
+    team_name = next(
         (t["name"] for t in get_teams(guild.id) if int(t["team_id"]) == int(team_id)),
         "Percepteur"
     )
-    add_attack_log(guild.id, tname, int(time.time()), msg.id)
+    add_attack_log(guild.id, team_name, int(time.time()), msg.id)
     await update_attack_log_embed(bot, guild)
 
-    # alliance en attente
-    attackers_cog = bot.get_cog("AttackersCog")
-    if attackers_cog:
-        await attackers_cog.apply_pending_attacker(msg, interaction.user.id)
+    atk_cog = bot.get_cog("AttackersCog")
+    if atk_cog:
+        await atk_cog.apply_pending_attacker(msg, interaction.user.id)
 
     await interaction.followup.send("Alerte envoyée.", ephemeral=True)
 
 
-# ================
-# PANEL PING
-# ================
+# ---------------- PANEL ----------------
 
 def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
@@ -395,7 +358,7 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
 
     for t in teams:
         tid = int(t["team_id"])
-        if tid == 8:  # enlever prisme
+        if tid == 8:
             continue
 
         btn = discord.ui.Button(label=t["label"], style=discord.ButtonStyle.danger)
@@ -406,25 +369,22 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
         btn.callback = cb
         view.add_item(btn)
 
-    # bouton test
     if cfg.get("role_test_id"):
-        btn = discord.ui.Button(label="TEST", style=discord.ButtonStyle.secondary)
+        test_btn = discord.ui.Button(label="TEST", style=discord.ButtonStyle.secondary)
 
-        async def cb_test(interaction):
+        async def cb2(interaction):
             if cfg.get("admin_role_id") and not any(r.id == cfg["admin_role_id"] for r in interaction.user.roles):
                 await interaction.response.send_message("Admin only.", ephemeral=True)
                 return
             await send_alert(bot, guild, interaction, cfg["role_test_id"], 0)
 
-        btn.callback = cb_test
-        view.add_item(btn)
+        test_btn.callback = cb2
+        view.add_item(test_btn)
 
     return view
 
 
-# ================
-# COG
-# ================
+# ---------------- COG ----------------
 
 class AlertsCog(commands.Cog):
     def __init__(self, bot):
