@@ -1,4 +1,3 @@
-# storage.py
 import sqlite3
 import time
 from typing import Optional, Tuple, List, Dict
@@ -8,9 +7,10 @@ DB_PATH = "defense_leaderboard.db"
 def utcnow_i() -> int:
     return int(time.time())
 
-# ==============================
-# WRAPPER DB
-# ==============================
+
+# ============================================================
+#  DB WRAPPER
+# ============================================================
 
 def with_db(func):
     def wrapper(*args, **kwargs):
@@ -24,15 +24,16 @@ def with_db(func):
             con.close()
     return wrapper
 
-# ==============================
-# CREATE DB
-# ==============================
+
+# ============================================================
+#  INIT DB
+# ============================================================
 
 def create_db():
     con = sqlite3.connect(DB_PATH)
     cur = con.cursor()
 
-    # Messages
+    # Messages / alertes
     cur.execute("""
         CREATE TABLE IF NOT EXISTS messages(
             message_id INTEGER PRIMARY KEY,
@@ -43,8 +44,7 @@ def create_db():
             incomplete INTEGER,
             last_ts    INTEGER NOT NULL,
             creator_id INTEGER,
-            team       INTEGER,
-            attack_incomplete INTEGER DEFAULT 0
+            team       INTEGER
         )
     """)
 
@@ -100,54 +100,28 @@ def create_db():
         )
     """)
 
-    # Attack reports (conservé car certaines parties y font référence)
+    # Stockage des messages leaderboard
     cur.execute("""
-        CREATE TABLE IF NOT EXISTS attack_reports(
-            report_id  INTEGER PRIMARY KEY AUTOINCREMENT,
-            guild_id   INTEGER NOT NULL,
-            message_id INTEGER NOT NULL,
-            author_id  INTEGER NOT NULL,
-            target     TEXT,
-            created_ts INTEGER NOT NULL
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS attack_report_coops(
-            report_id INTEGER NOT NULL,
-            user_id   INTEGER NOT NULL,
-            PRIMARY KEY (report_id, user_id)
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS attack_target_totals(
+        CREATE TABLE IF NOT EXISTS leaderboard_posts(
             guild_id INTEGER NOT NULL,
-            target   TEXT NOT NULL,
-            count    INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (guild_id, target)
-        )
-    """)
-
-    # NEW : dernière alerte utilisée par un joueur (pour attackers)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_last_alert(
-            user_id INTEGER PRIMARY KEY,
+            key      TEXT NOT NULL,
+            channel_id INTEGER NOT NULL,
             message_id INTEGER NOT NULL,
-            ts INTEGER NOT NULL
+            PRIMARY KEY (guild_id, key)
         )
     """)
 
     con.commit()
     con.close()
 
-# ==============================
-# CONFIG GUILDE
-# ==============================
+
+# ============================================================
+#  GUILD CONFIG
+# ============================================================
 
 @with_db
 def upsert_guild_config(
-    con: sqlite3.Connection,
+    con,
     guild_id: int,
     alert_channel_id: int,
     leaderboard_channel_id: int,
@@ -178,13 +152,14 @@ def upsert_guild_config(
           role_g1_id, role_g2_id, role_g3_id, role_g4_id, role_test_id, admin_role_id))
 
 @with_db
-def get_guild_config(con: sqlite3.Connection, guild_id: int) -> Optional[dict]:
+def get_guild_config(con, guild_id: int) -> Optional[dict]:
     row = con.execute("SELECT * FROM guild_config WHERE guild_id=?", (guild_id,)).fetchone()
     return dict(row) if row else None
 
-# ==============================
-# TEAMS
-# ==============================
+
+# ============================================================
+#  TEAM CONFIG
+# ============================================================
 
 @with_db
 def upsert_team(con, guild_id: int, team_id: int, name: str, role_id: int, label: str, order_index: int):
@@ -208,19 +183,19 @@ def get_teams(con, guild_id: int) -> List[dict]:
     """, (guild_id,)).fetchall()
     return [dict(r) for r in rows]
 
-# ==============================
-# MESSAGES
-# ==============================
+
+# ============================================================
+#  MESSAGES (alertes)
+# ============================================================
 
 @with_db
 def upsert_message(con, message_id, guild_id, channel_id, created_ts, creator_id=None, team=None):
     con.execute("""
         INSERT INTO messages(message_id, guild_id, channel_id, created_ts,
-                             outcome, incomplete, last_ts, creator_id, team, attack_incomplete)
-        VALUES (?,?,?,?,NULL,0,?,?,?,0)
+                             outcome, incomplete, last_ts, creator_id, team)
+        VALUES (?,?,?,?,NULL,0,?,?,?)
         ON CONFLICT(message_id) DO NOTHING
     """, (message_id, guild_id, channel_id, created_ts, utcnow_i(), creator_id, team))
-
     if team is not None:
         con.execute("UPDATE messages SET team=?, last_ts=? WHERE message_id=?",
                     (team, utcnow_i(), message_id))
@@ -246,17 +221,16 @@ def get_message_outcome(con, message_id: int) -> Optional[str]:
 
 @with_db
 def set_outcome(con, message_id: int, outcome: Optional[str]):
-    con.execute("UPDATE messages SET outcome=?, last_ts=? WHERE message_id=?",
-                (outcome, utcnow_i(), message_id))
+    con.execute("UPDATE messages SET outcome=?, last_ts=? WHERE message_id=?", (outcome, utcnow_i(), message_id))
 
 @with_db
 def set_incomplete(con, message_id: int, incomplete: bool):
-    con.execute("UPDATE messages SET incomplete=?, last_ts=? WHERE message_id=?",
-                (1 if incomplete else 0, utcnow_i(), message_id))
+    con.execute("UPDATE messages SET incomplete=?, last_ts=? WHERE message_id=?", (1 if incomplete else 0, utcnow_i(), message_id))
 
-# ==============================
-# PARTICIPANTS
-# ==============================
+
+# ============================================================
+#  PARTICIPANTS
+# ============================================================
 
 @with_db
 def add_participant(con, message_id, user_id, added_by=None, source="reaction") -> bool:
@@ -271,8 +245,7 @@ def add_participant(con, message_id, user_id, added_by=None, source="reaction") 
 
 @with_db
 def remove_participant(con, message_id, user_id) -> bool:
-    cur = con.execute("DELETE FROM participants WHERE message_id=? AND user_id=?",
-                      (message_id, user_id))
+    cur = con.execute("DELETE FROM participants WHERE message_id=? AND user_id=?", (message_id, user_id))
     return cur.rowcount > 0
 
 @with_db
@@ -297,7 +270,8 @@ def get_participants_detailed(con, message_id) -> List[Tuple[int, Optional[int],
 @with_db
 def get_first_defender(con, message_id: int) -> Optional[int]:
     row = con.execute("""
-        SELECT user_id FROM participants
+        SELECT user_id
+        FROM participants
         WHERE message_id=?
         ORDER BY ts ASC LIMIT 1
     """, (message_id,)).fetchone()
@@ -309,9 +283,10 @@ def get_participants_user_ids(con, message_id: int) -> List[int]:
         "SELECT user_id FROM participants WHERE message_id=?", (message_id,)
     ).fetchall()]
 
-# ==============================
-# LEADERBOARDS
-# ==============================
+
+# ============================================================
+#  LEADERBOARDS
+# ============================================================
 
 @with_db
 def incr_leaderboard(con, guild_id: int, type_: str, user_id: int):
@@ -357,20 +332,47 @@ def get_leaderboard_totals_all(con, guild_id: int, type_: str) -> Dict[int, int]
 @with_db
 def get_leaderboard_value(con, guild_id: int, type_: str, user_id: int) -> int:
     row = con.execute("""
-        SELECT count FROM leaderboard_totals
+        SELECT count 
+        FROM leaderboard_totals
         WHERE guild_id=? AND type=? AND user_id=?
     """, (guild_id, type_, user_id)).fetchone()
     return row["count"] if row else 0
 
-# ==============================
-# TRACK MESSAGE + DELETE
-# ==============================
+
+# ============================================================
+#  LEADERBOARD MESSAGE STORAGE
+# ============================================================
+
+@with_db
+def set_leaderboard_post(con, guild_id: int, channel_id: int, message_id: int, key: str):
+    con.execute("""
+        INSERT INTO leaderboard_posts(guild_id, key, channel_id, message_id)
+        VALUES (?,?,?,?)
+        ON CONFLICT(guild_id, key) DO UPDATE SET
+            channel_id=excluded.channel_id,
+            message_id=excluded.message_id
+    """, (guild_id, key, channel_id, message_id))
+
+@with_db
+def get_leaderboard_post(con, guild_id: int, key: str) -> Optional[Tuple[int, int]]:
+    row = con.execute("""
+        SELECT channel_id, message_id
+        FROM leaderboard_posts
+        WHERE guild_id=? AND key=?
+    """, (guild_id, key)).fetchone()
+    return (row["channel_id"], row["message_id"]) if row else None
+
+
+# ============================================================
+#  MESSAGE DELETE
+# ============================================================
 
 @with_db
 def get_message_info(con, message_id: int) -> Optional[Tuple[int, int]]:
     row = con.execute("""
         SELECT guild_id, creator_id
-        FROM messages WHERE message_id=?
+        FROM messages
+        WHERE message_id=?
     """, (message_id,)).fetchone()
     return (row["guild_id"], row["creator_id"]) if row else None
 
@@ -378,25 +380,3 @@ def get_message_info(con, message_id: int) -> Optional[Tuple[int, int]]:
 def delete_message_and_participants(con, message_id: int):
     con.execute("DELETE FROM participants WHERE message_id=?", (message_id,))
     con.execute("DELETE FROM messages WHERE message_id=?", (message_id,))
-
-# ==============================
-# LAST ALERT (Pour Attackers)
-# ==============================
-
-@with_db
-def save_last_alert_for_user(con, user_id: int, message_id: int):
-    con.execute("""
-        INSERT INTO user_last_alert(user_id, message_id, ts)
-        VALUES (?,?,?)
-        ON CONFLICT(user_id) DO UPDATE SET
-            message_id=excluded.message_id,
-            ts=excluded.ts
-    """, (user_id, message_id, utcnow_i()))
-
-@with_db
-def get_last_alert_for_user(con, user_id: int) -> Optional[int]:
-    row = con.execute("""
-        SELECT message_id FROM user_last_alert
-        WHERE user_id=?
-    """, (user_id,)).fetchone()
-    return row["message_id"] if row else None
