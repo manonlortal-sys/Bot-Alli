@@ -4,7 +4,7 @@ from discord.ext import commands
 from discord import app_commands
 import time
 import json
-from typing import Optional, List
+from typing import Optional, Tuple, List
 
 from cogs.alerts import build_ping_embed, update_attack_log_embed, LOG_FILE
 
@@ -117,16 +117,16 @@ class AttackButton(discord.ui.Button):
         set_cooldown(user_id, alliance)
 
         # recherche dernière alerte du user
-        msg = None
+        msg: Optional[discord.Message] = None
         if user_id in user_last_alert:
             msg_id = user_last_alert[user_id]
 
             # essayer dans le salon courant
             try:
-                msg = await interaction.channel.fetch_message(msg_id)
+                msg = await interaction.channel.fetch_message(msg_id)  # type: ignore
             except:
                 # essayer dans tous les channels
-                for ch in interaction.guild.text_channels:
+                for ch in interaction.guild.text_channels:  # type: ignore
                     try:
                         msg = await ch.fetch_message(msg_id)
                         break
@@ -142,8 +142,8 @@ class AttackButton(discord.ui.Button):
                 await interaction.followup.send("⚠️ Impossible de mettre à jour l’alerte.", ephemeral=True)
                 return
 
-            update_attack_log_entry(interaction.guild.id, msg.id, alliance)
-            await update_attack_log_embed(self.bot, interaction.guild)
+            update_attack_log_entry(interaction.guild.id, msg.id)  # type: ignore
+            await update_attack_log_embed(self.bot, interaction.guild)  # type: ignore
 
             await interaction.followup.send(
                 f"Alliance **{alliance}** appliquée à ta dernière alerte.",
@@ -166,9 +166,8 @@ class AttackButton(discord.ui.Button):
 
 def make_attack_view(bot: commands.Bot) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
-    # 3 / 3 / 1 → 7 boutons sur 3 lignes propres
-    for idx, name in enumerate(ATTACKER_LIST):
-        row = idx // 3  # 0,0,0,1,1,1,2
+    for i, name in enumerate(ATTACKER_LIST):
+        row = 0 if i < 4 else 1  # 4 boutons première rangée, 3 deuxième
         view.add_item(AttackButton(bot, name, row=row))
     return view
 
@@ -181,11 +180,15 @@ class AttackersCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
+    # 🆕 utilisée par cogs.alerts pour mémoriser la dernière alerte créée
+    def register_alert_message(self, user_id: int, message_id: int):
+        user_last_alert[user_id] = message_id
+
     @app_commands.command(name="attackpanel", description="Affiche le panneau des alliances attaquantes.")
     async def attackpanel(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="📢 ALLIANCE ATTAQUANTE",
-            description="Clique une fois sur l’alliance qui attaque.",
+            description="Clique une fois sur l’alliance qui attaque (avant ou après l’alerte).",
             color=discord.Color.red(),
         )
         await interaction.response.send_message(embed=embed, view=make_attack_view(self.bot))
@@ -194,6 +197,9 @@ class AttackersCog(commands.Cog):
         """Appelé automatiquement lorsque l’utilisateur déclenche une alerte après avoir sélectionné une alliance."""
         alliance = get_pending_attacker(user_id)
         if not alliance:
+            # même si pas d'alliance en attente,
+            # on mémorise quand même cette alerte comme "dernière"
+            user_last_alert[user_id] = message.id
             return False
 
         emb = await build_ping_embed(message, attackers=[alliance])
@@ -202,12 +208,14 @@ class AttackersCog(commands.Cog):
         except:
             return False
 
-        update_attack_log_entry(message.guild.id, message.id, alliance)
+        update_attack_log_entry(message.guild.id, message.id)
         await update_attack_log_embed(self.bot, message.guild)
 
         if user_id in pending_attackers:
             del pending_attackers[user_id]
 
+        # et on mémorise cette alerte comme dernière
+        user_last_alert[user_id] = message.id
         return True
 
 
