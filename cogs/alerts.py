@@ -28,20 +28,17 @@ EMOJI_JOIN = "👍"
 ATTACKERS_PREFIX = "⚔️ Attaquants : "
 last_alerts: dict[tuple[int, int], float] = {}
 
-# mêmes teams ignorées que dans reactions.py
-IGNORED_TEAMS = {0, 8}  # 0 = TEST, 8 = Prisme
-
-# Emojis personnalisés de guildes
+# Emojis personnalisés par équipe
 TEAM_EMOJIS: dict[int, discord.PartialEmoji] = {
-    1: discord.PartialEmoji(name="Wanted",       id=1421870161048375357),
-    2: discord.PartialEmoji(name="Wanted",       id=1421870161048375357),
-    3: discord.PartialEmoji(name="Snowflake",    id=1421870090588131441),
-    4: discord.PartialEmoji(name="SecteurK",     id=1421870011902988439),
-    5: discord.PartialEmoji(name="Rixe",         id=1438157003162648656),
-    6: discord.PartialEmoji(name="HagraTime",    id=1422120372836503622),
-    7: discord.PartialEmoji(name="HagraPasLtime",id=1422120467812323339),
-    8: discord.PartialEmoji(name="Prisme",       id=1422160491228434503),
-    9: discord.PartialEmoji(name="Ruthless",     id=1438157046770827304),
+    1: discord.PartialEmoji(name="Wanted", id=1421870161048375357),
+    2: discord.PartialEmoji(name="Wanted", id=1421870161048375357),
+    3: discord.PartialEmoji(name="Snowflake", id=1421870090588131441),
+    4: discord.PartialEmoji(name="SecteurK", id=1421870011902988439),
+    5: discord.PartialEmoji(name="Rixe", id=1438157003162648656),
+    6: discord.PartialEmoji(name="HagraTime", id=1422120372836503622),
+    7: discord.PartialEmoji(name="HagraPasLtime", id=1422120467812323339),
+    8: discord.PartialEmoji(name="Prisme", id=1422160491228434503),
+    9: discord.PartialEmoji(name="Ruthless", id=1438157046770827304),
 }
 
 
@@ -160,7 +157,7 @@ async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] 
     reactions = {str(r.emoji): r for r in msg.reactions}
     win = EMOJI_VICTORY in reactions and reactions[EMOJI_VICTORY].count > 0
     loss = EMOJI_DEFEAT in reactions and reactions[EMOJI_DEFEAT].count > 0
-    incomplete = EMOJI_INCOMP in reactions and EMOJI_INCOMP in reactions and reactions[EMOJI_INCOMP].count > 0
+    incomplete = EMOJI_INCOMP in reactions and reactions[EMOJI_INCOMP].count > 0
 
     if win and not loss:
         color = discord.Color.green()
@@ -268,9 +265,8 @@ class AddDefendersSelectView(discord.ui.View):
         channel = guild.get_channel(interaction.channel_id) or guild.get_thread(interaction.channel_id)
         msg = await channel.fetch_message(self.message_id)
 
-        # team de l’alerte pour savoir si on ignore les leaderboards
         team_id = get_message_team(self.message_id)
-        ignore_lb = team_id in IGNORED_TEAMS
+        ignore_lb = team_id in (0, 8)
 
         inserted_any = False
         for member in self.selected:
@@ -298,15 +294,14 @@ class AddDefendersButtonView(discord.ui.View):
 
     @discord.ui.button(label="Ajouter défenseurs", style=discord.ButtonStyle.primary, emoji="🛡️")
     async def add_def(self, interaction, button):
-        guild = interaction.guild
-        channel = guild.get_channel(interaction.channel_id) or guild.get_thread(interaction.channel_id)
+        channel = interaction.guild.get_channel(interaction.channel_id) or interaction.guild.get_thread(interaction.channel_id)
         msg = await channel.fetch_message(self.message_id)
 
-        # 🔒 Vérifier que l’utilisateur a mis un 👍
+        # ✅ Vérifier qu'il y a des 👍 et que l'utilisateur en fait partie
         thumbs_up = next((r for r in msg.reactions if str(r.emoji) == EMOJI_JOIN), None)
         if not thumbs_up:
             await interaction.response.send_message(
-                "Aucune réaction 👍 détectée sur ce message.",
+                "Tu dois d’abord réagir avec 👍 sur l’alerte pour ajouter des défenseurs.",
                 ephemeral=True
             )
             return
@@ -314,7 +309,7 @@ class AddDefendersButtonView(discord.ui.View):
         users = [u async for u in thumbs_up.users()]
         if interaction.user not in users:
             await interaction.response.send_message(
-                "Tu dois réagir avec 👍 avant d’ajouter des défenseurs.",
+                "Tu dois d’abord réagir avec 👍 sur l’alerte pour ajouter des défenseurs.",
                 ephemeral=True
             )
             return
@@ -327,13 +322,13 @@ class AddDefendersButtonView(discord.ui.View):
 
     @discord.ui.button(label="Attaquant", style=discord.ButtonStyle.danger, emoji="⚔️")
     async def attacker_manual(self, interaction, button):
-        channel = interaction.guild.get_channel(interaction.channel_id)
+        channel = interaction.guild.get_channel(interaction.channel_id) or interaction.guild.get_thread(interaction.channel_id)
         msg = await channel.fetch_message(self.message_id)
         await interaction.response.send_modal(AttackerModal(self.bot, msg))
 
     @discord.ui.button(label="Solo", style=discord.ButtonStyle.secondary, emoji="🧍")
     async def delete_alert(self, interaction, button):
-        channel = interaction.guild.get_channel(interaction.channel_id)
+        channel = interaction.guild.get_channel(interaction.channel_id) or interaction.guild.get_thread(interaction.channel_id)
         msg = await channel.fetch_message(self.message_id)
         await msg.delete()
         await interaction.response.send_message("Alerte supprimée.", ephemeral=True)
@@ -366,14 +361,15 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
         team=team_id,
     )
 
-    # pingeur (pas TEST ni PRISME)
-    if team_id not in IGNORED_TEAMS:
+    # pingeur (pas test ni prisme)
+    if team_id not in (0, 8):
         incr_leaderboard(guild.id, "pingeur", interaction.user.id)
 
     emb = await build_ping_embed(msg)
     await msg.edit(embed=emb, view=AddDefendersButtonView(bot, msg.id))
 
-    if team_id not in IGNORED_TEAMS:
+    # leaderboard global (pas test / prisme)
+    if team_id not in (0, 8):
         await update_leaderboards(bot, guild)
 
     team_name = next(
@@ -383,9 +379,13 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
     add_attack_log(guild.id, team_name, int(time.time()), msg.id)
     await update_attack_log_embed(bot, guild)
 
+    # lien avec le cog Attackers (avant/après)
     atk_cog = bot.get_cog("AttackersCog")
     if atk_cog:
-        await atk_cog.apply_pending_attacker(msg, interaction.user.id)
+        # mémorise cette alerte comme "dernière" pour cet utilisateur
+        atk_cog.register_alert_message(interaction.user.id, msg.id)  # type: ignore
+        # et applique si une alliance a été choisie AVANT l’alerte
+        await atk_cog.apply_pending_attacker(msg, interaction.user.id)  # type: ignore
 
     await interaction.followup.send("Alerte envoyée.", ephemeral=True)
 
