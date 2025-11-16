@@ -1,12 +1,13 @@
 # cogs/attackers.py
+import time
+import json
+from typing import Optional, List
+
 import discord
 from discord.ext import commands
 from discord import app_commands
-import time
-import json
-from typing import Optional, Tuple, List
 
-from cogs.alerts import build_ping_embed, update_attack_log_embed, LOG_FILE
+from .alerts import build_ping_embed, update_attack_log_embed, LOG_FILE
 
 # =============================
 # ⚙️ CONFIGURATION
@@ -15,7 +16,7 @@ from cogs.alerts import build_ping_embed, update_attack_log_embed, LOG_FILE
 ATTACKER_COOLDOWN = 60          # anti-spam
 ATTACKER_EXPIRATION = 120       # temps pendant lequel l’alliance attend la prochaine alerte
 
-ATTACKER_LIST = [
+ATTACKER_LIST: List[str] = [
     "VAE", "WBC", "BRUT", "KOBO", "HZN", "CLT", "AUTRE"
 ]
 
@@ -59,7 +60,7 @@ def _load_logs() -> dict:
     try:
         with open(LOG_FILE, "r", encoding="utf-8") as f:
             return json.load(f)
-    except:
+    except Exception:
         return {}
 
 
@@ -67,7 +68,7 @@ def _save_logs(data: dict):
     try:
         with open(LOG_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
-    except:
+    except Exception:
         pass
 
 
@@ -124,13 +125,13 @@ class AttackButton(discord.ui.Button):
             # essayer dans le salon courant
             try:
                 msg = await interaction.channel.fetch_message(msg_id)  # type: ignore
-            except:
-                # essayer dans tous les channels
+            except Exception:
+                # essayer dans tous les channels texte
                 for ch in interaction.guild.text_channels:  # type: ignore
                     try:
                         msg = await ch.fetch_message(msg_id)
                         break
-                    except:
+                    except Exception:
                         continue
 
         # si dernière alerte trouvée → mise à jour immédiate
@@ -138,12 +139,12 @@ class AttackButton(discord.ui.Button):
             emb = await build_ping_embed(msg, attackers=[alliance])
             try:
                 await msg.edit(embed=emb)
-            except:
+            except Exception:
                 await interaction.followup.send("⚠️ Impossible de mettre à jour l’alerte.", ephemeral=True)
                 return
 
-            update_attack_log_entry(interaction.guild.id, msg.id)  # type: ignore
-            await update_attack_log_embed(self.bot, interaction.guild)  # type: ignore
+            update_attack_log_entry(interaction.guild.id, msg.id, alliance)  # type: ignore
+            await update_attack_log_embed(self.bot, interaction.guild)       # type: ignore
 
             await interaction.followup.send(
                 f"Alliance **{alliance}** appliquée à ta dernière alerte.",
@@ -167,7 +168,8 @@ class AttackButton(discord.ui.Button):
 def make_attack_view(bot: commands.Bot) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
     for i, name in enumerate(ATTACKER_LIST):
-        row = 0 if i < 4 else 1  # 4 boutons première rangée, 3 deuxième
+        # 4 boutons sur la première rangée, 3 sur la seconde
+        row = 0 if i < 4 else 1
         view.add_item(AttackButton(bot, name, row=row))
     return view
 
@@ -180,7 +182,7 @@ class AttackersCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    # 🆕 utilisée par cogs.alerts pour mémoriser la dernière alerte créée
+    # utilisée par cogs.alerts pour mémoriser la dernière alerte créée
     def register_alert_message(self, user_id: int, message_id: int):
         user_last_alert[user_id] = message_id
 
@@ -194,21 +196,24 @@ class AttackersCog(commands.Cog):
         await interaction.response.send_message(embed=embed, view=make_attack_view(self.bot))
 
     async def apply_pending_attacker(self, message: discord.Message, user_id: int) -> bool:
-        """Appelé automatiquement lorsque l’utilisateur déclenche une alerte après avoir sélectionné une alliance."""
+        """
+        Appelé automatiquement par cogs.alerts quand une alerte est créée.
+        - Si une alliance était déjà choisie AVANT l’alerte → on met à jour tout de suite.
+        - Sinon → on mémorise juste cette alerte comme la dernière pour ce user.
+        """
         alliance = get_pending_attacker(user_id)
         if not alliance:
-            # même si pas d'alliance en attente,
-            # on mémorise quand même cette alerte comme "dernière"
+            # pas d’alliance en attente : on retient quand même cette alerte
             user_last_alert[user_id] = message.id
             return False
 
         emb = await build_ping_embed(message, attackers=[alliance])
         try:
             await message.edit(embed=emb)
-        except:
+        except Exception:
             return False
 
-        update_attack_log_entry(message.guild.id, message.id)
+        update_attack_log_entry(message.guild.id, message.id, alliance)
         await update_attack_log_embed(self.bot, message.guild)
 
         if user_id in pending_attackers:
@@ -217,8 +222,6 @@ class AttackersCog(commands.Cog):
         # et on mémorise cette alerte comme dernière
         user_last_alert[user_id] = message.id
         return True
-    def register_alert_message(self, user_id: int, message_id: int):
-    user_last_alert[user_id] = message_id
 
 
 async def setup(bot):
