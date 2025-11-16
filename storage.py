@@ -352,7 +352,7 @@ def set_leaderboard_post(con, guild_id: int, channel_id: int, message_id: int, l
 
 import json
 from typing import Dict, List
-from .utils import LOG_FILE
+from utils import LOG_FILE
 
 def _load_logs() -> dict:
     """Charge le fichier JSON contenant l’historique des attaques."""
