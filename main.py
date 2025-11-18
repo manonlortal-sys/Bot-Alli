@@ -42,6 +42,7 @@ async def setup_hook():
         "cogs.attackers",
         "cogs.attaque",
         "cogs.pvp",
+        "cogs.rota",
     ]:
         try:
             await bot.load_extension(ext)
