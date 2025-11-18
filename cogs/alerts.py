@@ -38,7 +38,7 @@ TEAM_EMOJIS: dict[int, discord.PartialEmoji] = {
     5: discord.PartialEmoji(name="Rixe", id=1438157003162648656),
     6: discord.PartialEmoji(name="HagraTime", id=1422120372836503622),
     7: discord.PartialEmoji(name="HagraPasLtime", id=1422120467812323339),
-    8: discord.PartialEmoji(name="Prisme", id=1440376012444663868),  # ✅ RÉACTIVÉ
+    8: discord.PartialEmoji(name="Prisme", id=1440376010955685918),  # ✅ RÉACTIVÉ
     9: discord.PartialEmoji(name="Ruthless", id=1438157046770827304),
 }
 
