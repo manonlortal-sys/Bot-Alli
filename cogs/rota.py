@@ -4,7 +4,7 @@ from discord.ext import commands
 from discord import app_commands
 
 # -------------------------------------------------
-# CONFIG — À REMPLIR AVEC TES IDS DE RÔLES
+# CONFIG — IDS DES ROLES (ceux QUI DONNENT VRAIMENT un rôle)
 # -------------------------------------------------
 
 ROLES = {
@@ -25,11 +25,8 @@ ROLES = {
     "Autre": 1440248484853841972,
 }
 
-ROLE_AUCUN = 0  # ID du rôle "aucun" — À METTRE TOI-MÊME
-
-
 # -------------------------------------------------
-# EMOJIS PANEL
+# EMOJIS
 # -------------------------------------------------
 
 EMOJIS = {
@@ -51,34 +48,35 @@ EMOJIS = {
     "Aucun": "❌",
 }
 
-
 # -------------------------------------------------
-# VIEW DES BOUTONS
+# BOUTON NORMAL
 # -------------------------------------------------
 
 class RotaButton(discord.ui.Button):
     def __init__(self, label: str, role_id: int, style: discord.ButtonStyle, row: int):
         super().__init__(label=label, emoji=EMOJIS[label], style=style, row=row)
-        self.role_id = role_id
+        self.role_id = role_id  # None pour "Aucun"
 
     async def callback(self, interaction: discord.Interaction):
         guild = interaction.guild
         member = interaction.user
 
+        # 🔥 CAS SPÉCIAL : Aucun → enlever tous les rôles du panel
         if self.label == "Aucun":
-            removed_any = False
+            removed = False
             for r_id in ROLES.values():
                 role = guild.get_role(r_id)
                 if role and role in member.roles:
                     await member.remove_roles(role)
-                    removed_any = True
+                    removed = True
 
-            if removed_any:
+            if removed:
                 await interaction.response.send_message("Tous tes rôles rota ont été retirés.", ephemeral=True)
             else:
                 await interaction.response.send_message("Tu n'avais aucun rôle rota.", ephemeral=True)
             return
 
+        # 🔥 Bouton normal
         role = guild.get_role(self.role_id)
         if not role:
             await interaction.response.send_message("Rôle introuvable.", ephemeral=True)
@@ -91,6 +89,10 @@ class RotaButton(discord.ui.Button):
             await member.add_roles(role)
             await interaction.response.send_message(f"Rôle ajouté : **{self.label}**", ephemeral=True)
 
+
+# -------------------------------------------------
+# VIEW DES BOUTONS
+# -------------------------------------------------
 
 class RotaView(discord.ui.View):
     def __init__(self):
@@ -108,13 +110,13 @@ class RotaView(discord.ui.View):
         for name in ["Grobe", "Frigost 2", "Donjon"]:
             self.add_item(RotaButton(name, ROLES[name], discord.ButtonStyle.success, row=2))
 
-        # Ligne 4
+        # Ligne 4 (bleu puis rouge)
         self.add_item(RotaButton("Autre", ROLES["Autre"], discord.ButtonStyle.primary, row=3))
-        self.add_item(RotaButton("Aucun", ROLE_AUCUN, discord.ButtonStyle.danger, row=3))
+        self.add_item(RotaButton("Aucun", None, discord.ButtonStyle.danger, row=3))
 
 
 # -------------------------------------------------
-# COG
+# COMMAND
 # -------------------------------------------------
 
 class RotaCog(commands.Cog):
@@ -126,10 +128,9 @@ class RotaCog(commands.Cog):
         embed = discord.Embed(
             title="🐴 Rotation percepteur",
             description=(
-                "✨ **Clique sur un ou plusieurs boutons** pour choisir les zones où tu veux être ping.\n"
-                "🔄 Clique à nouveau pour **retirer le rôle**.\n"
-                "❌ Le bouton **Aucun** retire **tous** tes rôles de ping rota.\n\n"
-                "📣 Ping le rôle concerné pour signaler que tu vas lever un percepteur pour une rota ! 🛡️"
+                "Clique sur un ou plusieurs boutons pour choisir où tu veux être ping.\n"
+                "Clique à nouveau pour retirer un rôle.\n"
+                "Le bouton ❌ **Aucun** retire tous tes rôles rota."
             ),
             color=discord.Color.blurple(),
         )
