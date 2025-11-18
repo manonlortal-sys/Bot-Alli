@@ -19,7 +19,7 @@ ROLES = {
     "Plantala": 1440248294575177862,
 
     "Grobe": 1440248376657580042,
-    "Frigost 2": 1440248458920460358,
+    "Fri2": 1440248458920460358,
 
     "Donjon": 1440248434891292713,
     "Autre": 1440248484853841972,
@@ -41,7 +41,7 @@ EMOJIS = {
     "Plantala": "🌿",
 
     "Grobe": "👻",
-    "Frigost 2": "🧊",
+    "Fri2": "🧊",
 
     "Donjon": "🏰",
     "Autre": "📌",
@@ -117,7 +117,7 @@ class RotaView(discord.ui.View):
             self.add_item(RotaButton(name, ROLES[name], discord.ButtonStyle.success, row=1))
 
         # Ligne 3 (vert)
-        for name in ["Grobe", "Frigost 2", "Donjon"]:
+        for name in ["Grobe", "Fri2", "Donjon"]:
             self.add_item(RotaButton(name, ROLES[name], discord.ButtonStyle.success, row=2))
 
         # Ligne 4 : Autre (bleu) + Aucun (rouge)
