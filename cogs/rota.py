@@ -26,8 +26,6 @@ ROLES = {
     "Autre": 1440248484853841972,
 }
 
-ROLE_AUCUN = 0  # ID du rôle "aucun"
-
 # -------------------------------------------------
 # EMOJIS PANEL
 # -------------------------------------------------
@@ -57,7 +55,7 @@ EMOJIS = {
 # -------------------------------------------------
 
 class RotaButton(discord.ui.Button):
-    def __init__(self, label: str, role_id: int, style: discord.ButtonStyle, row: int):
+    def __init__(self, label: str, role_id: int | None, style: discord.ButtonStyle, row: int):
         super().__init__(label=label, emoji=EMOJIS[label], style=style, row=row)
         self.role_id = role_id
 
@@ -65,22 +63,31 @@ class RotaButton(discord.ui.Button):
         guild = interaction.guild
         member = interaction.user
 
+        # Bouton "Aucun" → retirer tous les rôles du panel
         if self.label == "Aucun":
-            # Enlever tous les rôles du panel
             removed_any = False
             for r_id in ROLES.values():
-                if r_id and (role := guild.get_role(r_id)) and role in member.roles:
+                role = guild.get_role(r_id)
+                if role and role in member.roles:
                     await member.remove_roles(role)
                     removed_any = True
+
             if removed_any:
-                await interaction.response.send_message("Tous tes rôles rota ont été retirés.", ephemeral=True)
+                await interaction.response.send_message(
+                    "Tous tes rôles rota ont été retirés.",
+                    ephemeral=True
+                )
             else:
-                await interaction.response.send_message("Tu n'avais aucun rôle rota.", ephemeral=True)
+                await interaction.response.send_message(
+                    "Tu n'avais aucun rôle rota.",
+                    ephemeral=True
+                )
             return
 
+        # Sinon → toggle du rôle classique
         role = guild.get_role(self.role_id)
         if not role:
-            await interaction.response.send_message("Rôle introuvable. Vérifie la configuration.", ephemeral=True)
+            await interaction.response.send_message("Rôle introuvable.", ephemeral=True)
             return
 
         if role in member.roles:
@@ -103,13 +110,14 @@ class RotaView(discord.ui.View):
         for name in ["Aerdala", "Terrdala", "Feudala", "Plantala"]:
             self.add_item(RotaButton(name, ROLES[name], discord.ButtonStyle.success, row=1))
 
-        # Ligne 3 (vert) — 5 boutons
+        # Ligne 3 (vert)
         for name in ["Grobe", "Frigost 2", "DJ œuf", "Donjon"]:
             self.add_item(RotaButton(name, ROLES[name], discord.ButtonStyle.success, row=2))
 
-        # Ligne 4
+        # Ligne 4 (bleu puis rouge)
         self.add_item(RotaButton("Autre", ROLES["Autre"], discord.ButtonStyle.primary, row=3))
-        self.add_item(RotaButton("Aucun", ROLE_AUCUN, discord.ButtonStyle.danger, row=3))
+        self.add_item(RotaButton("Aucun", None, discord.ButtonStyle.danger, row=3))
+
 
 # -------------------------------------------------
 # COG
