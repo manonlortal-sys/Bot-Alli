@@ -20,7 +20,7 @@ ROLES = {
 
     "Grobe": 1440248376657580042,
     "Frigost 2": 1440248458920460358,
-    "DJ œuf": 1440248402783895572,
+    "DJ oeuf": 1440248402783895572,
     "Donjon": 1440248434891292713,
 
     "Autre": 1440248484853841972,
@@ -43,7 +43,7 @@ EMOJIS = {
 
     "Grobe": "👻",
     "Frigost 2": "🧊",
-    "DJ œuf": "🥚",
+    "DJ oeuf": "🥚",
     "Donjon": "🏰",
 
     "Autre": "📌",
@@ -111,7 +111,7 @@ class RotaView(discord.ui.View):
             self.add_item(RotaButton(name, ROLES[name], discord.ButtonStyle.success, row=1))
 
         # Ligne 3 (vert)
-        for name in ["Grobe", "Frigost 2", "DJ œuf", "Donjon"]:
+        for name in ["Grobe", "Frigost 2", "DJ oeuf", "Donjon"]:
             self.add_item(RotaButton(name, ROLES[name], discord.ButtonStyle.success, row=2))
 
         # Ligne 4 (bleu puis rouge)
