@@ -28,19 +28,19 @@ EMOJI_JOIN = "👍"
 ATTACKERS_PREFIX = "⚔️ Attaquants : "
 last_alerts: dict[tuple[int, int], float] = {}
 
-# Emojis personnalisés par équipe
+# ----------------- EMOJIS GUILDE -----------------
+
 TEAM_EMOJIS: dict[int, discord.PartialEmoji] = {
     1: discord.PartialEmoji(name="Wanted", id=1421870161048375357),
     2: discord.PartialEmoji(name="Wanted", id=1421870161048375357),
     3: discord.PartialEmoji(name="Snowflake", id=1421870090588131441),
     4: discord.PartialEmoji(name="SecteurK", id=1421870011902988439),
-    5: discord.PartialEmoji(name="Rixe", id=1438158988742230110),
+    5: discord.PartialEmoji(name="Rixe", id=1438157003162648656),
     6: discord.PartialEmoji(name="HagraTime", id=1422120372836503622),
     7: discord.PartialEmoji(name="HagraPasLtime", id=1422120467812323339),
-    8: discord.PartialEmoji(name="Prisme", id=1440376051065815252),
+    8: discord.PartialEmoji(name="Prisme", id=1422160491228434503),  # ✅ RÉACTIVÉ
     9: discord.PartialEmoji(name="Ruthless", id=1438157046770827304),
 }
-
 
 # ---------------- LOG JSON ----------------
 
@@ -53,11 +53,9 @@ def _load_logs():
     except:
         return {}
 
-
 def _save_logs(data):
     with open(LOG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-
 
 def add_attack_log(guild_id: int, team_name: str, timestamp: int, message_id: int):
     data = _load_logs()
@@ -75,7 +73,6 @@ def add_attack_log(guild_id: int, team_name: str, timestamp: int, message_id: in
     data[str(guild_id)] = logs
     _save_logs(data)
     return logs
-
 
 async def update_attack_log_embed(bot: commands.Bot, guild: discord.Guild):
     cfg = get_guild_config(guild.id)
@@ -116,7 +113,6 @@ async def update_attack_log_embed(bot: commands.Bot, guild: discord.Guild):
 
     await channel.send(embed=embed)
 
-
 # ---------------- HELPERS ----------------
 
 def _parse_attackers_from_embed(msg: discord.Message) -> List[str]:
@@ -133,7 +129,6 @@ def _parse_attackers_from_embed(msg: discord.Message) -> List[str]:
                     attackers.append(s[len(ATTACKERS_PREFIX):])
             break
     return attackers
-
 
 async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] = None) -> discord.Embed:
     creator_id = get_message_creator(msg.id)
@@ -153,7 +148,6 @@ async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] 
 
     defenders_block = "• " + "\n• ".join(def_lines) if def_lines else "_Aucun défenseur pour le moment._"
 
-    # état combat
     reactions = {str(r.emoji): r for r in msg.reactions}
     win = EMOJI_VICTORY in reactions and reactions[EMOJI_VICTORY].count > 0
     loss = EMOJI_DEFEAT in reactions and reactions[EMOJI_DEFEAT].count > 0
@@ -202,7 +196,7 @@ async def build_ping_embed(msg: discord.Message, attackers: Optional[List[str]] 
     return embed
 
 
-# ---------------- MODAL ATTAQUANT ----------------
+# ---------------- MODAL ATTAQUANTS ----------------
 
 class AttackerModal(discord.ui.Modal, title="Ajouter des attaquants"):
     attackers = discord.ui.TextInput(
@@ -242,7 +236,7 @@ class AttackerModal(discord.ui.Modal, title="Ajouter des attaquants"):
         await interaction.response.send_message("Attaquants ajoutés.", ephemeral=True)
 
 
-# ---------------- VIEWS ----------------
+# ---------------- ADD DEFENDERS ----------------
 
 class AddDefendersSelectView(discord.ui.View):
     def __init__(self, bot, message_id, claimer_id):
@@ -297,7 +291,6 @@ class AddDefendersButtonView(discord.ui.View):
         channel = interaction.guild.get_channel(interaction.channel_id) or interaction.guild.get_thread(interaction.channel_id)
         msg = await channel.fetch_message(self.message_id)
 
-        # ✅ Vérifier qu'il y a des 👍 et que l'utilisateur en fait partie
         thumbs_up = next((r for r in msg.reactions if str(r.emoji) == EMOJI_JOIN), None)
         if not thumbs_up:
             await interaction.response.send_message(
@@ -361,9 +354,7 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
         team=team_id,
     )
 
-    # pingeur (sauf test/prisme)
     if team_id not in (0, 8):
-        from storage import incr_leaderboard
         incr_leaderboard(guild.id, "pingeur", interaction.user.id)
 
     emb = await build_ping_embed(msg)
@@ -378,7 +369,6 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
     add_attack_log(guild.id, team_name, int(time.time()), msg.id)
     await update_attack_log_embed(bot, guild)
 
-    # 🔥 appliquer alliance stockée AVANT
     atk_cog = bot.get_cog("AttackersCog")
     if atk_cog:
         atk_cog.register_alert_message(interaction.user.id, msg.id)
@@ -386,7 +376,8 @@ async def send_alert(bot, guild, interaction, role_id: int, team_id: int):
 
     await interaction.followup.send("Alerte envoyée.", ephemeral=True)
 
-# ---------------- PANEL ----------------
+
+# ---------------- PANEL PING ----------------
 
 def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
     view = discord.ui.View(timeout=None)
@@ -394,7 +385,15 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
     cfg = get_guild_config(guild.id)
     teams = get_teams(guild.id)
 
+    for t in teams:
+        tid = int(t["team_id"])
+
+        # ❌ Avant tu avais :
+        # if tid == 8: continue
+        # 👉 Maintenant on affiche aussi PRISME (team 8)
+
         emoji = TEAM_EMOJIS.get(tid)
+
         btn = discord.ui.Button(
             label=t["label"],
             style=discord.ButtonStyle.danger,
@@ -439,7 +438,6 @@ class AlertsCog(commands.Cog):
         )
 
         await interaction.response.send_message(embed=embed, view=make_ping_view(self.bot, guild))
-
 
 async def setup(bot):
     await bot.add_cog(AlertsCog(bot))
