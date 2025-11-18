@@ -37,7 +37,7 @@ TEAM_EMOJIS: dict[int, discord.PartialEmoji] = {
     5: discord.PartialEmoji(name="Rixe", id=1438158988742230110),
     6: discord.PartialEmoji(name="HagraTime", id=1422120372836503622),
     7: discord.PartialEmoji(name="HagraPasLtime", id=1422120467812323339),
-    8: discord.PartialEmoji(name="Prisme", id=1422160491228434503),
+    8: discord.PartialEmoji(name="Prisme", id=1440376051065815252),
     9: discord.PartialEmoji(name="Ruthless", id=1438157046770827304),
 }
 
@@ -393,11 +393,6 @@ def make_ping_view(bot: commands.Bot, guild: discord.Guild) -> discord.ui.View:
 
     cfg = get_guild_config(guild.id)
     teams = get_teams(guild.id)
-
-    for t in teams:
-        tid = int(t["team_id"])
-        if tid == 8:
-            continue
 
         emoji = TEAM_EMOJIS.get(tid)
         btn = discord.ui.Button(
