@@ -24,10 +24,10 @@ TEAM_EMOJIS = {
     "Wanted 2": "<:Wanted:1421870161048375357>",
     "Snowflake": "<:Snowflake:1421870090588131441>",
     "Secteur K": "<:SecteurK:1421870011902988439>",
-    "Rixe": "<:Rixe:1438158988742230110>",
+    "Rixe": "<:Rixe:1442212748330008688>",
     "HagraTime": "<:HagraTime:1422120372836503622>",
     "HagraPaLtime": "<:HagraPasLtime:1422120467812323339>",
-    "Ruthless": "<:Ruthless:1438157046770827304>",
+    "Ruthless": "<:Ruthless:1445075561515843665>",
     "Prisme": "<:Prisme:1440376012444663868>",
 }
 
