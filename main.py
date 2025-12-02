@@ -25,6 +25,8 @@ intents.guilds = True
 intents.members = True
 intents.messages = True
 intents.reactions = True
+# 🔴 Important pour lire le contenu des messages supprimés
+intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -36,6 +38,7 @@ async def setup_hook():
     for ext in [
         "cogs.alerts",
         "cogs.pvp",
+        "cogs.message_delete_logger",  # ✅ nouveau cog pour les logs de suppression
     ]:
         try:
             await bot.load_extension(ext)
