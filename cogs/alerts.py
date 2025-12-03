@@ -20,13 +20,12 @@ last_ping: dict[str, float] = {}
 # EMOJIS CUSTOM (définitifs)
 # -----------------------------
 TEAM_EMOJIS = {
-    "Wanted": "<:Wanted:1421870161048375357>",
-    "Wanted 2": "<:Wanted:1421870161048375357>",
-    "Snowflake": "<:Snowflake:1421870090588131441>",
-    "Secteur K": "<:SecteurK:1421870011902988439>",
+    "Wanted": "<:Wanted:1445543166433558619>",
+    "Snowflake": "<:Snowflake:1445542850979696661>",
+    "Secteur K": "<:SecteurK:1445542991904247870>",
     "Rixe": "<:Rixe:1442212748330008688>",
-    "HagraTime": "<:HagraTime:1422120372836503622>",
-    "HagraPaLtime": "<:HagraPasLtime:1422120467812323339>",
+    "HagraTime": "<:HagraTime:1445541987447996457>",
+    "HagraPaLtime": "<:HagraPasLtime:1445542787238989954>",
     "Ruthless": "<:Ruthless:1445075561515843665>",
     "Prisme": "<:Prisme:1440376012444663868>",
 }
@@ -36,7 +35,6 @@ TEAM_EMOJIS = {
 # -----------------------------
 TEAMS = [
     ("Wanted",        1419320456263237663),
-    ("Wanted 2",      1421860260377006295),
     ("Snowflake",     1421859079755927682),
     ("Secteur K",     1419320615999111359),
 
