@@ -4,6 +4,7 @@ from discord import app_commands
 import asyncio
 import uuid
 import os
+from typing import Optional  # ✔ indispensable pour Python 3.9
 
 
 IMAGES_PATH = "draft_images"
@@ -19,15 +20,18 @@ class DraftSession:
         self.channel = channel
         self.starter_id = starter_id
 
-        self.player_a: discord.Member | None = None
-        self.player_b: discord.Member | None = None
+        # ✔ Compatibilité Python 3.9
+        self.player_a: Optional[discord.Member] = None
+        self.player_b: Optional[discord.Member] = None
 
         self.deck_a: list[str] = []
         self.deck_b: list[str] = []
 
         self.current_step = 0
         self.active = True
-        self.last_message: discord.Message | None = None
+
+        # ✔ Compatibilité Python 3.9
+        self.last_message: Optional[discord.Message] = None
 
     def is_ready(self):
         return self.player_a is not None and self.player_b is not None
@@ -226,7 +230,6 @@ class Draft(commands.Cog):
         )
 
         filepath = os.path.join(IMAGES_PATH, img)
-
         file = discord.File(filepath)
 
         view = ClassChoiceView(session, self, step, giver, choices)
