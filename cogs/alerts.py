@@ -12,16 +12,16 @@ ALERT_CHANNEL_ID = 1358772372831994040  # Salon où envoyer les alertes
 ADMIN_ROLE_ID = 1280396795046006836     # Rôle admin
 ROLE_TEST_ID = 1358771105980088390      # Rôle pingé par le bouton TEST
 
-# Cooldown (30 sec par team + rush simu)
+# Cooldown (30 sec par team)
 COOLDOWN = 30
 last_ping: dict[str, float] = {}
 
 
 # -----------------------------
-# TEAMS & PANEL ORDER (4x3)
+# TEAMS
 # -----------------------------
 TEAMS = [
-    ("Def",        1326671483455537172),
+    ("Def", 1326671483455537172),
 ]
 
 
@@ -39,7 +39,12 @@ def check_cooldown(key: str) -> bool:
 # -----------------------------
 # SEND ALERT FUNCTION
 # -----------------------------
-async def send_team_alert(interaction: discord.Interaction, label: str, role_id: int, blue: bool = False):
+async def send_team_alert(
+    interaction: discord.Interaction,
+    label: str,
+    role_id: int,
+    blue: bool = False,
+):
     if not check_cooldown(label):
         return await interaction.response.send_message(
             "❌ Une alerte pour cette team a déjà été envoyée récemment.",
@@ -48,7 +53,10 @@ async def send_team_alert(interaction: discord.Interaction, label: str, role_id:
 
     channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
     if not channel:
-        return await interaction.response.send_message("❌ Salon d’alerte introuvable.", ephemeral=True)
+        return await interaction.response.send_message(
+            "❌ Salon d’alerte introuvable.",
+            ephemeral=True,
+        )
 
     await interaction.response.send_message(
         f"Alerte envoyée pour **{label}**.",
@@ -58,7 +66,7 @@ async def send_team_alert(interaction: discord.Interaction, label: str, role_id:
     await channel.send(f"<@&{role_id}>")
 
     embed = discord.Embed(
-        title=f"⚠️ Percepteur attaqué : {label} ",
+        title=f"⚠️ Percepteur attaqué : {label}",
         description=f"Déclenché par {interaction.user.mention}",
         color=discord.Color.blue() if blue else discord.Color.red(),
     )
@@ -71,13 +79,22 @@ async def send_team_alert(interaction: discord.Interaction, label: str, role_id:
 # -----------------------------
 async def send_test_alert(interaction: discord.Interaction):
     if not any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles):
-        return await interaction.response.send_message("Admin only.", ephemeral=True)
+        return await interaction.response.send_message(
+            "Admin only.",
+            ephemeral=True,
+        )
 
     channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
     if not channel:
-        return await interaction.response.send_message("❌ Salon d’alerte introuvable.", ephemeral=True)
+        return await interaction.response.send_message(
+            "❌ Salon d’alerte introuvable.",
+            ephemeral=True,
+        )
 
-    await interaction.response.send_message("Alerte TEST envoyée.", ephemeral=True)
+    await interaction.response.send_message(
+        "Alerte TEST envoyée.",
+        ephemeral=True,
+    )
 
     await channel.send(f"<@&{ROLE_TEST_ID}>")
 
@@ -96,28 +113,35 @@ async def send_test_alert(interaction: discord.Interaction):
 def build_panel_view():
     view = discord.ui.View(timeout=None)
 
-    # Les 9 teams
+    # Teams
     for label, role_id in TEAMS:
 
-        # Bouton bleu pour Prisme
-        style = discord.ButtonStyle.primary if label == "Prisme" else discord.ButtonStyle.danger
+        style = (
+            discord.ButtonStyle.primary
+            if label == "Prisme"
+            else discord.ButtonStyle.danger
+        )
 
         btn = discord.ui.Button(
             label=label,
             style=style,
         )
 
-        async def callback(interaction, label=label, role_id=role_id, style=style):
-            await send_team_alert(interaction, label, role_id, blue=(style == discord.ButtonStyle.primary))
+        async def callback(
+            interaction,
+            label=label,
+            role_id=role_id,
+            style=style,
+        ):
+            await send_team_alert(
+                interaction,
+                label,
+                role_id,
+                blue=(style == discord.ButtonStyle.primary),
+            )
 
         btn.callback = callback
         view.add_item(btn)
-
-    async def rush_cb(interaction):
-        await send_rush_simu(interaction)
-
-    rush_btn.callback = rush_cb
-    view.add_item(rush_btn)
 
     # Bouton TEST (admin only)
     test_btn = discord.ui.Button(
@@ -141,7 +165,10 @@ class AlertsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="pingpanel", description="Affiche le panneau de ping défense.")
+    @app_commands.command(
+        name="pingpanel",
+        description="Affiche le panneau de ping défense.",
+    )
     async def pingpanel(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="⚔️ Ping défense percepteurs",
@@ -149,7 +176,10 @@ class AlertsCog(commands.Cog):
             color=discord.Color.blurple(),
         )
 
-        await interaction.response.send_message(embed=embed, view=build_panel_view())
+        await interaction.response.send_message(
+            embed=embed,
+            view=build_panel_view(),
+        )
 
 
 async def setup(bot):
