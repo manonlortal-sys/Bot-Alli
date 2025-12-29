@@ -8,42 +8,20 @@ from discord import app_commands
 # -----------------------------
 # CONFIG
 # -----------------------------
-ALERT_CHANNEL_ID = 1139550892471889971  # Salon où envoyer les alertes
-ADMIN_ROLE_ID = 1139578015676895342     # Rôle admin
-ROLE_TEST_ID = 1421867268421320844      # Rôle pingé par le bouton TEST
+ALERT_CHANNEL_ID = 1358772372831994040  # Salon où envoyer les alertes
+ADMIN_ROLE_ID = 1280396795046006836     # Rôle admin
+ROLE_TEST_ID = 1358771105980088390      # Rôle pingé par le bouton TEST
 
 # Cooldown (30 sec par team + rush simu)
 COOLDOWN = 30
 last_ping: dict[str, float] = {}
 
-# -----------------------------
-# EMOJIS CUSTOM (définitifs)
-# -----------------------------
-TEAM_EMOJIS = {
-    "Wanted": "<:Wanted:1445543166433558619>",
-    "Snowflake": "<:Snowflake:1445542850979696661>",
-    "Secteur K": "<:SecteurK:1445542991904247870>",
-    "Rixe": "<:Rixe:1442212748330008688>",
-    "HagraTime": "<:HagraTime:1445541987447996457>",
-    "HagraPaLtime": "<:HagraPasLtime:1445542787238989954>",
-    "Ruthless": "<:Ruthless:1445075561515843665>",
-    "Prisme": "<:Prisme:1440376012444663868>",
-}
 
 # -----------------------------
 # TEAMS & PANEL ORDER (4x3)
 # -----------------------------
 TEAMS = [
-    ("Wanted",        1419320456263237663),
-    ("Snowflake",     1421859079755927682),
-    ("Secteur K",     1419320615999111359),
-
-    ("Rixe",          1421927584802934915),
-    ("HagraTime",     1421927858967810110),
-    ("HagraPaLtime",  1421927953188524144),
-    ("Ruthless",      1437841408856948776),
-
-    ("Prisme",        1421953218719518961),  # bleu
+    ("Def",        1326671483455537172),
 ]
 
 
@@ -72,8 +50,6 @@ async def send_team_alert(interaction: discord.Interaction, label: str, role_id:
     if not channel:
         return await interaction.response.send_message("❌ Salon d’alerte introuvable.", ephemeral=True)
 
-    emoji = TEAM_EMOJIS.get(label, "")
-
     await interaction.response.send_message(
         f"Alerte envoyée pour **{label}**.",
         ephemeral=True,
@@ -82,43 +58,9 @@ async def send_team_alert(interaction: discord.Interaction, label: str, role_id:
     await channel.send(f"<@&{role_id}>")
 
     embed = discord.Embed(
-        title=f"⚠️ Percepteur attaqué : {label} {emoji}",
+        title=f"⚠️ Percepteur attaqué : {label} ",
         description=f"Déclenché par {interaction.user.mention}",
         color=discord.Color.blue() if blue else discord.Color.red(),
-    )
-
-    await channel.send(embed=embed)
-
-
-# -----------------------------
-# SEND RUSH SIMU ALERT
-# -----------------------------
-async def send_rush_simu(interaction: discord.Interaction):
-    key = "RUSH_SIMU"
-
-    if not check_cooldown(key):
-        return await interaction.response.send_message(
-            "❌ Une alerte Rush Simu a déjà été envoyée récemment.",
-            ephemeral=True,
-        )
-
-    channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
-    if not channel:
-        return await interaction.response.send_message("❌ Salon d’alerte introuvable.", ephemeral=True)
-
-    await interaction.response.send_message("Alerte Rush Simu envoyée.", ephemeral=True)
-
-    # Ping everyone hors embed
-    await channel.send("@everyone")
-
-    embed = discord.Embed(
-        title="⚠️ On se fait rush !",
-        description=(
-            "🔥 Une guilde de l’alliance se fait attaquer simultanément,\n"
-            "ou toute l’alliance se fait rush.\n"
-            "Merci de vous connecter pour aider !"
-        ),
-        color=discord.Color.blue(),
     )
 
     await channel.send(embed=embed)
@@ -162,7 +104,6 @@ def build_panel_view():
 
         btn = discord.ui.Button(
             label=label,
-            emoji=TEAM_EMOJIS[label],
             style=style,
         )
 
@@ -171,13 +112,6 @@ def build_panel_view():
 
         btn.callback = callback
         view.add_item(btn)
-
-    # Bouton Rush Simu
-    rush_btn = discord.ui.Button(
-        label="RUSH SIMU",
-        emoji="🔥",
-        style=discord.ButtonStyle.primary,
-    )
 
     async def rush_cb(interaction):
         await send_rush_simu(interaction)
