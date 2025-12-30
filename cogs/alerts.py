@@ -21,7 +21,7 @@ last_ping: dict[str, float] = {}
 # label_bouton, role_id, label_embed
 # -----------------------------
 BUTTONS = [
-    ("Wanted", 1326671483455537172, "Def"),
+    ("WANTED", 1326671483455537172, "Def"),
     ("Attaque simultanée", 1326671483455537172, "Def"),
 ]
 
@@ -118,9 +118,15 @@ def build_panel_view():
 
     for label, role_id, embed_label in BUTTONS:
         btn = discord.ui.Button(
-            label=label,
-            emoji="🪳",
-            style=discord.ButtonStyle.danger,
+    label=label,
+    emoji="🪳",
+    style=(
+        discord.ButtonStyle.primary
+        if label == "Wanted"
+        else discord.ButtonStyle.danger
+    ),
+)
+
         )
 
         async def callback(
