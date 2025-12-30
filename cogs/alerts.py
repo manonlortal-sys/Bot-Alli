@@ -118,15 +118,13 @@ def build_panel_view():
 
     for label, role_id, embed_label in BUTTONS:
         btn = discord.ui.Button(
-    label=label,
-    emoji="🪳",
-    style=(
-        discord.ButtonStyle.primary
-        if label == "Wanted"
-        else discord.ButtonStyle.danger
-    ),
-)
-
+            label=label,
+            emoji="🪳",
+            style=(
+                discord.ButtonStyle.primary
+                if label.lower() == "wanted"
+                else discord.ButtonStyle.danger
+            ),
         )
 
         async def callback(
