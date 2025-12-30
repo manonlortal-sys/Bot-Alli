@@ -64,13 +64,18 @@ async def send_alert(
         ephemeral=True,
     )
 
+    # Message texte avec ping rôle
     await channel.send(
         f"<@&{role_id}> les cafards se font attaquer ! 🚨"
     )
 
+    # Embed avec mention du cliqueur
     embed = discord.Embed(
         title=f"⚠️ Percepteur attaqué : {embed_label}",
-        description="Réveillez vous le fond du bus, il est temps de cafarder ! ⚠️",
+        description=(
+            "Réveillez vous le fond du bus, il est temps de cafarder ! ⚠️\n\n"
+            f"Déclenché par {interaction.user.mention}"
+        ),
         color=discord.Color.red(),
     )
 
@@ -103,7 +108,10 @@ async def send_test_alert(interaction: discord.Interaction):
 
     embed = discord.Embed(
         title="⚠️ Percepteur attaqué : TEST",
-        description="Réveillez vous le fond du bus, il est temps de cafarder ! ⚠️",
+        description=(
+            "Réveillez vous le fond du bus, il est temps de cafarder ! ⚠️\n\n"
+            f"Déclenché par {interaction.user.mention}"
+        ),
         color=discord.Color.greyple(),
     )
 
