@@ -8,7 +8,7 @@ from discord import app_commands
 # -----------------------------
 # CONFIG
 # -----------------------------
-ALERT_CHANNEL_ID = 1358772372831994040
+ALERT_CHANNEL_ID = 1327548733398843413
 ADMIN_ROLE_ID = 1280396795046006836
 ROLE_TEST_ID = 1358771105980088390
 
