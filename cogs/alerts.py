@@ -116,4 +116,66 @@ async def send_test_alert(interaction: discord.Interaction):
 def build_panel_view():
     view = discord.ui.View(timeout=None)
 
-    for label, role_id, embed_label in BUT
+    for label, role_id, embed_label in BUTTONS:
+        btn = discord.ui.Button(
+            label=label,
+            emoji="🪳",
+            style=discord.ButtonStyle.danger,
+        )
+
+        async def callback(
+            interaction,
+            label=label,
+            role_id=role_id,
+            embed_label=embed_label,
+        ):
+            await send_alert(
+                interaction,
+                label,
+                role_id,
+                embed_label,
+            )
+
+        btn.callback = callback
+        view.add_item(btn)
+
+    test_btn = discord.ui.Button(
+        label="TEST",
+        style=discord.ButtonStyle.secondary,
+    )
+
+    async def test_cb(interaction):
+        await send_test_alert(interaction)
+
+    test_btn.callback = test_cb
+    view.add_item(test_btn)
+
+    return view
+
+
+# -----------------------------
+# COG
+# -----------------------------
+class AlertsCog(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @app_commands.command(
+        name="pingpanel",
+        description="Affiche le panneau de ping défense.",
+    )
+    async def pingpanel(self, interaction: discord.Interaction):
+        embed = discord.Embed(
+            title="⚔️ Ping défense percepteurs",
+            description="Clique sur le bouton correspondant pour envoyer l’alerte.",
+            color=discord.Color.blurple(),
+        )
+
+        await interaction.response.send_message(
+            embed=embed,
+            view=build_panel_view(),
+        )
+
+
+async def setup(bot):
+    await bot.add_cog(AlertsCog(bot))
