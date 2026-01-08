@@ -37,7 +37,7 @@ async def setup_hook():
 
     for ext in [
         "cogs.alerts",
-        "cogs.alerts_runtime",# ✅ nouveau cog pour les logs de suppression
+        "cogs.panel",# ✅ nouveau cog pour les logs de suppression
     ]:
         try:
             await bot.load_extension(ext)
