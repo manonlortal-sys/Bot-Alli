@@ -36,7 +36,7 @@ async def setup_hook():
     print("🚀 setup_hook…")
 
     for ext in [
-        "cogs.alerts",
+        "cogs.alerts_runtime",
         "cogs.panel",# ✅ nouveau cog pour les logs de suppression
     ]:
         try:
