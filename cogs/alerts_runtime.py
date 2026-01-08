@@ -6,7 +6,7 @@ from discord.ext import commands
 alerts_data = {}
 
 
-def build_embed(base_embed, data, guild):
+def build_embed(base_embed: discord.Embed, data: dict) -> discord.Embed:
     embed = base_embed.copy()
 
     defenders = (
@@ -27,11 +27,7 @@ def build_embed(base_embed, data, guild):
     embed.add_field(name="📊 Résultat", value=result, inline=False)
 
     if data["incomplete"]:
-        embed.add_field(
-            name="⚠️ État",
-            value="😡 Défense incomplète",
-            inline=False,
-        )
+        embed.add_field(name="⚠️ État", value="😡 Défense incomplète", inline=False)
 
     return embed
 
@@ -43,17 +39,14 @@ class AddDefenderModal(discord.ui.Modal, title="Ajouter défenseurs"):
         required=True,
     )
 
-    def __init__(self, message_id):
+    def __init__(self, message_id: int):
         super().__init__()
         self.message_id = message_id
 
     async def on_submit(self, interaction: discord.Interaction):
         data = alerts_data.get(self.message_id)
         if not data:
-            return await interaction.response.send_message(
-                "Alerte inconnue.",
-                ephemeral=True,
-            )
+            return await interaction.response.send_message("Alerte inconnue.", ephemeral=True)
 
         if interaction.user.id not in data["defenders"]:
             return await interaction.response.send_message(
@@ -65,21 +58,13 @@ class AddDefenderModal(discord.ui.Modal, title="Ajouter défenseurs"):
             data["defenders"].add(u.id)
 
         msg = await interaction.channel.fetch_message(self.message_id)
-        new_embed = build_embed(
-            data["base_embed"],
-            data,
-            interaction.guild,
-        )
-        await msg.edit(embed=new_embed)
+        await msg.edit(embed=build_embed(data["base_embed"], data))
 
-        await interaction.response.send_message(
-            "Défenseur(s) ajouté(s).",
-            ephemeral=True,
-        )
+        await interaction.response.send_message("Défenseur(s) ajouté(s).", ephemeral=True)
 
 
 class AlertView(discord.ui.View):
-    def __init__(self, message_id):
+    def __init__(self, message_id: int):
         super().__init__(timeout=None)
         self.message_id = message_id
 
@@ -88,62 +73,87 @@ class AlertView(discord.ui.View):
         emoji="👤",
         style=discord.ButtonStyle.secondary,
     )
-    async def add_defender(self, interaction, _):
-        await interaction.response.send_modal(
-            AddDefenderModal(self.message_id)
-        )
+    async def add_defender(self, interaction: discord.Interaction, _):
+        await interaction.response.send_modal(AddDefenderModal(self.message_id))
 
 
-class AlertsRuntimeCog(commands.Cog):
+class AlertsRuntimeCog(commands.Cog, name="AlertsRuntimeCog"):
     def __init__(self, bot):
         self.bot = bot
 
-    async def register_alert(self, message: discord.Message, author):
+    async def register_alert(self, message: discord.Message, author: discord.abc.User):
+        # Message doit contenir un embed
+        if not message.embeds:
+            return
+
         alerts_data[message.id] = {
             "base_embed": message.embeds[0],
             "author": author.id,
             "defenders": set(),
-            "result": None,
+            "result": None,      # "win" | "lose"
             "incomplete": False,
         }
 
         await message.edit(view=AlertView(message.id))
 
+        # Réactions demandées
         for e in ("👍", "🏆", "❌", "😡"):
-            await message.add_reaction(e)
+            try:
+                await message.add_reaction(e)
+            except discord.HTTPException:
+                pass
 
     @commands.Cog.listener()
-    async def on_reaction_add(self, reaction, user):
-        if user.bot:
+    async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        # Ignore bots
+        if payload.user_id == self.bot.user.id:
             return
 
-        msg = reaction.message
-        data = alerts_data.get(msg.id)
+        data = alerts_data.get(payload.message_id)
         if not data:
             return
 
-        emoji = str(reaction.emoji)
+        emoji = str(payload.emoji)
 
+        # Récupérer le message (raw = pas dépendant du cache)
+        channel = self.bot.get_channel(payload.channel_id)
+        if channel is None:
+            try:
+                channel = await self.bot.fetch_channel(payload.channel_id)
+            except discord.HTTPException:
+                return
+
+        try:
+            msg = await channel.fetch_message(payload.message_id)
+        except discord.HTTPException:
+            return
+
+        # Appliquer règles
         if emoji == "👍":
-            data["defenders"].add(user.id)
+            data["defenders"].add(payload.user_id)
 
         elif emoji == "🏆":
             data["result"] = "win"
-            await msg.clear_reaction("❌")
+            try:
+                await msg.clear_reaction("❌")
+            except discord.HTTPException:
+                pass
 
         elif emoji == "❌":
             data["result"] = "lose"
-            await msg.clear_reaction("🏆")
+            try:
+                await msg.clear_reaction("🏆")
+            except discord.HTTPException:
+                pass
 
         elif emoji == "😡":
             data["incomplete"] = True
 
-        new_embed = build_embed(
-            data["base_embed"],
-            data,
-            msg.guild,
-        )
-        await msg.edit(embed=new_embed)
+        # Mettre à jour l'embed
+        try:
+            await msg.edit(embed=build_embed(data["base_embed"], data))
+        except discord.HTTPException:
+            pass
 
 
 async def setup(bot):
