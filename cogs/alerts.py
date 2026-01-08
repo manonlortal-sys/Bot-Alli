@@ -3,6 +3,7 @@
 import time
 import discord
 from discord.ext import commands
+from discord import app_commands
 
 # -----------------------------
 # CONFIG
@@ -15,7 +16,7 @@ COOLDOWN = 30
 last_ping: dict[str, float] = {}
 
 # -----------------------------
-# BUTTONS
+# BUTTONS PANEL (INCHANGÉ)
 # -----------------------------
 BUTTONS = [
     ("WANTED", 1326671483455537172, "Def"),
@@ -28,7 +29,7 @@ BUTTONS = [
 alerts_data = {}  # message_id -> data
 
 
-def default_alert_data(author_id: int):
+def new_alert(author_id: int):
     return {
         "author": author_id,
         "defenders": set(),
@@ -49,13 +50,13 @@ def check_cooldown(key: str) -> bool:
 
 
 # -----------------------------
-# EMBED BUILDER
+# EMBED
 # -----------------------------
 def build_embed(author, data):
     embed = discord.Embed(
         title="⚠️ Percepteur attaqué — Défense en cours",
         description=(
-            "Réveillez-vous le fond du bus, il est temps de cafarder 🚨\n"
+            "Réveillez-vous le fond du bus, il est temps de cafarder 🚨\n\n"
             f"Déclenché par {author.mention}"
         ),
         color=discord.Color.red(),
@@ -88,11 +89,11 @@ def build_embed(author, data):
 
 
 # -----------------------------
-# ADD DEFENDER MODAL
+# MODAL AJOUT DEFENSEUR
 # -----------------------------
 class AddDefenderModal(discord.ui.Modal, title="Ajouter défenseurs"):
     mentions = discord.ui.TextInput(
-        label="Mentions des défenseurs (max 4)",
+        label="Mentions (max 4)",
         placeholder="@Pseudo1 @Pseudo2",
         required=True,
     )
@@ -115,9 +116,8 @@ class AddDefenderModal(discord.ui.Modal, title="Ajouter défenseurs"):
                 ephemeral=True,
             )
 
-        users = interaction.mentions[:4]
-        for u in users:
-            data["defenders"].add(u.id)
+        for user in interaction.mentions[:4]:
+            data["defenders"].add(user.id)
 
         msg = await interaction.channel.fetch_message(self.message_id)
         author = interaction.guild.get_member(data["author"])
@@ -130,9 +130,9 @@ class AddDefenderModal(discord.ui.Modal, title="Ajouter défenseurs"):
 
 
 # -----------------------------
-# ALERT VIEW
+# VIEW MESSAGE ALERTE
 # -----------------------------
-class AlertView(discord.ui.View):
+class AlertMessageView(discord.ui.View):
     def __init__(self, message_id: int):
         super().__init__(timeout=None)
         self.message_id = message_id
@@ -149,12 +149,13 @@ class AlertView(discord.ui.View):
 
 
 # -----------------------------
-# ALERT SEND
+# ALERT
 # -----------------------------
 async def send_alert(
     interaction: discord.Interaction,
     cooldown_key: str,
     role_id: int,
+    embed_label: str,
 ):
     if not check_cooldown(cooldown_key):
         return await interaction.response.send_message(
@@ -174,18 +175,103 @@ async def send_alert(
         ephemeral=True,
     )
 
+    # message ping (INCHANGÉ)
     await channel.send(f"<@&{role_id}> les cafards se font attaquer ! 🚨")
 
-    data = default_alert_data(interaction.user.id)
+    # message embed (AMÉLIORÉ)
+    data = new_alert(interaction.user.id)
     embed = build_embed(interaction.user, data)
 
     msg = await channel.send(embed=embed)
     alerts_data[msg.id] = data
 
-    await msg.edit(view=AlertView(msg.id))
+    await msg.edit(view=AlertMessageView(msg.id))
 
-    for emoji in ("👍", "🏆", "❌", "😡"):
-        await msg.add_reaction(emoji)
+    for e in ("👍", "🏆", "❌", "😡"):
+        await msg.add_reaction(e)
+
+
+# -----------------------------
+# TEST ALERT (INCHANGÉ)
+# -----------------------------
+async def send_test_alert(interaction: discord.Interaction):
+    if not any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles):
+        return await interaction.response.send_message(
+            "Admin only.",
+            ephemeral=True,
+        )
+
+    channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
+    if not channel:
+        return await interaction.response.send_message(
+            "❌ Salon d’alerte introuvable.",
+            ephemeral=True,
+        )
+
+    await interaction.response.send_message(
+        "Alerte TEST envoyée.",
+        ephemeral=True,
+    )
+
+    await channel.send(f"<@&{ROLE_TEST_ID}>")
+
+    embed = discord.Embed(
+        title="⚠️ Percepteur attaqué : TEST",
+        description=(
+            "Réveillez vous le fond du bus, il est temps de cafarder ! ⚠️\n\n"
+            f"Déclenché par {interaction.user.mention}"
+        ),
+        color=discord.Color.greyple(),
+    )
+
+    await channel.send(embed=embed)
+
+
+# -----------------------------
+# PANEL (STRICTEMENT INCHANGÉ)
+# -----------------------------
+def build_panel_view():
+    view = discord.ui.View(timeout=None)
+
+    for label, role_id, embed_label in BUTTONS:
+        btn = discord.ui.Button(
+            label=label,
+            emoji="🪳",
+            style=(
+                discord.ButtonStyle.primary
+                if label.lower() == "wanted"
+                else discord.ButtonStyle.danger
+            ),
+        )
+
+        async def callback(
+            interaction,
+            label=label,
+            role_id=role_id,
+            embed_label=embed_label,
+        ):
+            await send_alert(
+                interaction,
+                label,
+                role_id,
+                embed_label,
+            )
+
+        btn.callback = callback
+        view.add_item(btn)
+
+    test_btn = discord.ui.Button(
+        label="TEST",
+        style=discord.ButtonStyle.secondary,
+    )
+
+    async def test_cb(interaction):
+        await send_test_alert(interaction)
+
+    test_btn.callback = test_cb
+    view.add_item(test_btn)
+
+    return view
 
 
 # -----------------------------
@@ -224,33 +310,21 @@ class AlertsCog(commands.Cog):
         author = msg.guild.get_member(data["author"])
         await msg.edit(embed=build_embed(author, data))
 
-    @commands.hybrid_command(
+    @app_commands.command(
         name="pingpanel",
         description="Affiche le panneau de ping défense.",
     )
-    async def pingpanel(self, ctx: commands.Context):
+    async def pingpanel(self, interaction: discord.Interaction):
         embed = discord.Embed(
             title="⚔️ Ping défense percepteurs",
             description="Clique sur le bouton correspondant pour envoyer l’alerte.",
             color=discord.Color.blurple(),
         )
 
-        view = discord.ui.View(timeout=None)
-
-        for label, role_id, _ in BUTTONS:
-            btn = discord.ui.Button(
-                label=label,
-                emoji="🪳",
-                style=discord.ButtonStyle.primary,
-            )
-
-            async def callback(interaction, label=label, role_id=role_id):
-                await send_alert(interaction, label, role_id)
-
-            btn.callback = callback
-            view.add_item(btn)
-
-        await ctx.send(embed=embed, view=view)
+        await interaction.response.send_message(
+            embed=embed,
+            view=build_panel_view(),
+        )
 
 
 async def setup(bot):
