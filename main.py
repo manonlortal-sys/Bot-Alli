@@ -20,12 +20,10 @@ DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 if not DISCORD_TOKEN:
     raise SystemExit("Missing DISCORD_TOKEN")
 
-intents = discord.Intents.default()
-intents.guilds = True
-intents.members = True
-intents.messages = True
-intents.reactions = True
-# 🔴 Important pour lire le contenu des messages supprimés
+# =============================
+# INTENTS (CORRIGÉ)
+# =============================
+intents = discord.Intents.all()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
@@ -37,7 +35,7 @@ async def setup_hook():
 
     for ext in [
         "cogs.alerts_runtime",
-        "cogs.panel",# ✅ nouveau cog pour les logs de suppression
+        "cogs.panel",
     ]:
         try:
             await bot.load_extension(ext)
