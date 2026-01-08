@@ -3,7 +3,6 @@
 import time
 import discord
 from discord.ext import commands
-from discord import app_commands
 
 # -----------------------------
 # CONFIG
@@ -52,12 +51,12 @@ def check_cooldown(key: str) -> bool:
 # -----------------------------
 # EMBED BUILDER
 # -----------------------------
-def build_embed(interaction_user, data):
+def build_embed(author, data):
     embed = discord.Embed(
         title="⚠️ Percepteur attaqué — Défense en cours",
         description=(
             "Réveillez-vous le fond du bus, il est temps de cafarder 🚨\n"
-            f"Déclenché par {interaction_user.mention}"
+            f"Déclenché par {author.mention}"
         ),
         color=discord.Color.red(),
     )
@@ -121,8 +120,8 @@ class AddDefenderModal(discord.ui.Modal, title="Ajouter défenseurs"):
             data["defenders"].add(u.id)
 
         msg = await interaction.channel.fetch_message(self.message_id)
-        embed = build_embed(interaction.guild.get_member(data["author"]), data)
-        await msg.edit(embed=embed)
+        author = interaction.guild.get_member(data["author"])
+        await msg.edit(embed=build_embed(author, data))
 
         await interaction.response.send_message(
             "Défenseur(s) ajouté(s).",
@@ -131,7 +130,7 @@ class AddDefenderModal(discord.ui.Modal, title="Ajouter défenseurs"):
 
 
 # -----------------------------
-# PANEL VIEW
+# ALERT VIEW
 # -----------------------------
 class AlertView(discord.ui.View):
     def __init__(self, message_id: int):
@@ -156,7 +155,6 @@ async def send_alert(
     interaction: discord.Interaction,
     cooldown_key: str,
     role_id: int,
-    embed_label: str,
 ):
     if not check_cooldown(cooldown_key):
         return await interaction.response.send_message(
@@ -184,15 +182,14 @@ async def send_alert(
     msg = await channel.send(embed=embed)
     alerts_data[msg.id] = data
 
-    view = AlertView(msg.id)
-    await msg.edit(view=view)
+    await msg.edit(view=AlertView(msg.id))
 
     for emoji in ("👍", "🏆", "❌", "😡"):
         await msg.add_reaction(emoji)
 
 
 # -----------------------------
-# REACTIONS
+# COG
 # -----------------------------
 class AlertsCog(commands.Cog):
     def __init__(self, bot):
@@ -224,17 +221,14 @@ class AlertsCog(commands.Cog):
         elif emoji == "😡":
             data["incomplete"] = True
 
-        embed = build_embed(
-            msg.guild.get_member(data["author"]),
-            data,
-        )
-        await msg.edit(embed=embed)
+        author = msg.guild.get_member(data["author"])
+        await msg.edit(embed=build_embed(author, data))
 
-    @app_commands.command(
+    @commands.hybrid_command(
         name="pingpanel",
         description="Affiche le panneau de ping défense.",
     )
-    async def pingpanel(self, interaction: discord.Interaction):
+    async def pingpanel(self, ctx: commands.Context):
         embed = discord.Embed(
             title="⚔️ Ping défense percepteurs",
             description="Clique sur le bouton correspondant pour envoyer l’alerte.",
@@ -243,37 +237,20 @@ class AlertsCog(commands.Cog):
 
         view = discord.ui.View(timeout=None)
 
-        for label, role_id, embed_label in BUTTONS:
+        for label, role_id, _ in BUTTONS:
             btn = discord.ui.Button(
                 label=label,
                 emoji="🪳",
-                style=(
-                    discord.ButtonStyle.primary
-                    if label.lower() == "wanted"
-                    else discord.ButtonStyle.danger
-                ),
+                style=discord.ButtonStyle.primary,
             )
 
-            async def callback(
-                interaction,
-                label=label,
-                role_id=role_id,
-                embed_label=embed_label,
-            ):
-                await send_alert(
-                    interaction,
-                    label,
-                    role_id,
-                    embed_label,
-                )
+            async def callback(interaction, label=label, role_id=role_id):
+                await send_alert(interaction, label, role_id)
 
             btn.callback = callback
             view.add_item(btn)
 
-        await interaction.response.send_message(
-            embed=embed,
-            view=view,
-        )
+        await ctx.send(embed=embed, view=view)
 
 
 async def setup(bot):
