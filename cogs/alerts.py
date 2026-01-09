@@ -41,6 +41,90 @@ def check_cooldown(key: str) -> bool:
 
 
 # -----------------------------
+# MODAL AJOUT DEFENSEURS
+# -----------------------------
+class AddDefendersModal(discord.ui.Modal, title="Ajouter des défenseurs"):
+    mentions = discord.ui.TextInput(
+        label="Mentions des défenseurs (max 4)",
+        placeholder="@Pseudo1 @Pseudo2",
+        required=True,
+        max_length=200,
+    )
+
+    def __init__(self, message_id: int):
+        super().__init__()
+        self.message_id = message_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        data = alerts_data.get(self.message_id)
+        if not data:
+            return await interaction.response.send_message(
+                "Cette alerte n’existe plus.",
+                ephemeral=True,
+            )
+
+        # Vérification 👍
+        if interaction.user.id not in data["defenders"]:
+            return await interaction.response.send_message(
+                "Tu dois avoir 👍 sur l’alerte pour ajouter des défenseurs.",
+                ephemeral=True,
+            )
+
+        added = False
+        for user in interaction.mentions[:4]:
+            if user.id not in data["defenders"]:
+                data["defenders"].add(user.id)
+                added = True
+
+        if added:
+            alerts_cog = interaction.client.get_cog("AlertsCog")
+            if alerts_cog:
+                await alerts_cog.update_alert_message(self.message_id)
+
+        await interaction.response.send_message(
+            "Défenseurs ajoutés.",
+            ephemeral=True,
+        )
+
+
+# -----------------------------
+# VIEW MESSAGE ALERTE
+# -----------------------------
+class AlertView(discord.ui.View):
+    def __init__(self, message_id: int):
+        super().__init__(timeout=None)
+        self.message_id = message_id
+
+    @discord.ui.Button(
+        label="Ajouter défenseur",
+        emoji="👤",
+        style=discord.ButtonStyle.secondary,
+    )
+    async def add_defender(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
+    ):
+        data = alerts_data.get(self.message_id)
+        if not data:
+            return await interaction.response.send_message(
+                "Cette alerte n’existe plus.",
+                ephemeral=True,
+            )
+
+        # Vérification 👍
+        if interaction.user.id not in data["defenders"]:
+            return await interaction.response.send_message(
+                "Tu dois avoir 👍 sur l’alerte pour utiliser ce bouton.",
+                ephemeral=True,
+            )
+
+        await interaction.response.send_modal(
+            AddDefendersModal(self.message_id)
+        )
+
+
+# -----------------------------
 # COG
 # -----------------------------
 class AlertsCog(commands.Cog):
@@ -107,7 +191,10 @@ class AlertsCog(commands.Cog):
         except discord.HTTPException:
             return
 
-        await msg.edit(embed=self.build_embed(data))
+        await msg.edit(
+            embed=self.build_embed(data),
+            view=AlertView(message_id),
+        )
 
     # ---------- API RÉACTIONS ----------
     async def add_defender(self, message_id: int, user_id: int):
@@ -183,8 +270,13 @@ class AlertsCog(commands.Cog):
             "incomplete": False,
         }
 
-        msg = await channel.send(embed=self.build_embed(data))
+        msg = await channel.send(
+            embed=self.build_embed(data),
+            view=AlertView(0),  # remplacé juste après
+        )
+
         alerts_data[msg.id] = data
+        await msg.edit(view=AlertView(msg.id))
 
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
@@ -219,8 +311,13 @@ class AlertsCog(commands.Cog):
             "incomplete": False,
         }
 
-        msg = await channel.send(embed=self.build_embed(data))
+        msg = await channel.send(
+            embed=self.build_embed(data),
+            view=AlertView(0),
+        )
+
         alerts_data[msg.id] = data
+        await msg.edit(view=AlertView(msg.id))
 
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
