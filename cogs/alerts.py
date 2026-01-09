@@ -51,12 +51,18 @@ class AddDefendersModal(discord.ui.Modal, title="Ajouter des défenseurs"):
         max_length=200,
     )
 
-    def __init__(self, message_id: int):
+    def __init__(self):
         super().__init__()
-        self.message_id = message_id
 
     async def on_submit(self, interaction: discord.Interaction):
-        data = alerts_data.get(self.message_id)
+        msg = interaction.message
+        if not msg:
+            return await interaction.response.send_message(
+                "Impossible de retrouver l’alerte.",
+                ephemeral=True,
+            )
+
+        data = alerts_data.get(msg.id)
         if not data:
             return await interaction.response.send_message(
                 "Cette alerte n’existe plus.",
@@ -74,7 +80,7 @@ class AddDefendersModal(discord.ui.Modal, title="Ajouter des défenseurs"):
 
         alerts_cog = interaction.client.get_cog("AlertsCog")
         if alerts_cog:
-            await alerts_cog.update_alert_message(self.message_id)
+            await alerts_cog.update_alert_message(msg.id)
 
         await interaction.response.send_message(
             "Défenseurs ajoutés.",
@@ -83,12 +89,11 @@ class AddDefendersModal(discord.ui.Modal, title="Ajouter des défenseurs"):
 
 
 # -----------------------------
-# VIEW MESSAGE ALERTE
+# VIEW PERSISTANTE (1 seule)
 # -----------------------------
 class AlertView(discord.ui.View):
-    def __init__(self, message_id: int | None = None):
+    def __init__(self):
         super().__init__(timeout=None)
-        self.message_id = message_id
 
     @discord.ui.Button(
         label="Ajouter défenseur",
@@ -101,10 +106,14 @@ class AlertView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-        if self.message_id is None:
-            return
+        msg = interaction.message
+        if not msg:
+            return await interaction.response.send_message(
+                "Impossible de retrouver l’alerte.",
+                ephemeral=True,
+            )
 
-        data = alerts_data.get(self.message_id)
+        data = alerts_data.get(msg.id)
         if not data:
             return await interaction.response.send_message(
                 "Cette alerte n’existe plus.",
@@ -117,9 +126,7 @@ class AlertView(discord.ui.View):
                 ephemeral=True,
             )
 
-        await interaction.response.send_modal(
-            AddDefendersModal(self.message_id)
-        )
+        await interaction.response.send_modal(AddDefendersModal())
 
 
 # -----------------------------
@@ -128,8 +135,8 @@ class AlertView(discord.ui.View):
 class AlertsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        # 🔴 ENREGISTREMENT DE LA VIEW PERSISTANTE (FIX)
-        bot.add_view(AlertView())
+        self.alert_view = AlertView()
+        bot.add_view(self.alert_view)  # ✅ persistante
 
     # ---------- EMBED ----------
     def build_embed(self, data: dict) -> discord.Embed:
@@ -193,7 +200,7 @@ class AlertsCog(commands.Cog):
 
         await msg.edit(
             embed=self.build_embed(data),
-            view=AlertView(message_id),
+            view=self.alert_view,
         )
 
     # ---------- API RÉACTIONS ----------
@@ -271,11 +278,10 @@ class AlertsCog(commands.Cog):
 
         msg = await channel.send(
             embed=self.build_embed(data),
-            view=AlertView(None),
+            view=self.alert_view,
         )
 
         alerts_data[msg.id] = data
-        await msg.edit(view=AlertView(msg.id))
 
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
@@ -312,11 +318,10 @@ class AlertsCog(commands.Cog):
 
         msg = await channel.send(
             embed=self.build_embed(data),
-            view=AlertView(None),
+            view=self.alert_view,
         )
 
         alerts_data[msg.id] = data
-        await msg.edit(view=AlertView(msg.id))
 
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
