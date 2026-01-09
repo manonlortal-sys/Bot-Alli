@@ -37,6 +37,7 @@ async def setup_hook():
         "cogs.alerts",
         "cogs.reactions",
         "cogs.leaderboard",
+        "cogs.leaderboard_triggers",
     ]:
         try:
             await bot.load_extension(ext)
