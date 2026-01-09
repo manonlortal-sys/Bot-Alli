@@ -86,25 +86,24 @@ class DefenderSelectView(discord.ui.View):
 
 
 # -----------------------------
-# VIEW MESSAGE ALERTE
+# VIEW MESSAGE ALERTE (NON PERSISTANTE)
 # -----------------------------
 class AlertView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, alert_id: int):
         super().__init__(timeout=None)
+        self.alert_id = alert_id
 
     @discord.ui.Button(
         label="Ajouter défenseur",
         emoji="👤",
         style=discord.ButtonStyle.secondary,
-        custom_id="alert_add_defender",
     )
     async def add_defender(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-        alert_id = interaction.message.id
-        data = alerts_data.get(alert_id)
+        data = alerts_data.get(self.alert_id)
         if not data:
             return await interaction.response.send_message(
                 "Alerte inexistante.",
@@ -119,7 +118,7 @@ class AlertView(discord.ui.View):
 
         await interaction.response.send_message(
             "Sélectionne les défenseurs :",
-            view=DefenderSelectView(alert_id),
+            view=DefenderSelectView(self.alert_id),
             ephemeral=True,
         )
 
@@ -130,8 +129,6 @@ class AlertView(discord.ui.View):
 class AlertsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.alert_view = AlertView()
-        bot.add_view(self.alert_view)
 
     # ---------- EMBED ----------
     def build_embed(self, data: dict) -> discord.Embed:
@@ -195,7 +192,7 @@ class AlertsCog(commands.Cog):
 
         await msg.edit(
             embed=self.build_embed(data),
-            view=self.alert_view,
+            view=AlertView(message_id),
         )
 
     # ---------- API RÉACTIONS ----------
@@ -232,6 +229,9 @@ class AlertsCog(commands.Cog):
             )
 
         channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
+        if not channel:
+            return
+
         await interaction.response.send_message(
             f"Alerte envoyée : **{cooldown_key}**.",
             ephemeral=True,
@@ -249,10 +249,11 @@ class AlertsCog(commands.Cog):
 
         msg = await channel.send(
             embed=self.build_embed(data),
-            view=self.alert_view,
+            view=AlertView(0),
         )
 
         alerts_data[msg.id] = data
+        await msg.edit(view=AlertView(msg.id))
 
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
@@ -266,6 +267,9 @@ class AlertsCog(commands.Cog):
             )
 
         channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
+        if not channel:
+            return
+
         await interaction.response.send_message(
             "Alerte TEST envoyée.",
             ephemeral=True,
@@ -283,10 +287,11 @@ class AlertsCog(commands.Cog):
 
         msg = await channel.send(
             embed=self.build_embed(data),
-            view=self.alert_view,
+            view=AlertView(0),
         )
 
         alerts_data[msg.id] = data
+        await msg.edit(view=AlertView(msg.id))
 
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
