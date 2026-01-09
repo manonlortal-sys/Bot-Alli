@@ -44,16 +44,16 @@ def check_cooldown(key: str) -> bool:
 # USER SELECT
 # -----------------------------
 class DefenderSelect(discord.ui.UserSelect):
-    def __init__(self):
+    def __init__(self, alert_id: int):
         super().__init__(
             placeholder="Sélectionne des défenseurs…",
             min_values=1,
             max_values=4,
         )
+        self.alert_id = alert_id
 
     async def callback(self, interaction: discord.Interaction):
-        msg = interaction.message
-        data = alerts_data.get(msg.id)
+        data = alerts_data.get(self.alert_id)
         if not data:
             return await interaction.response.send_message(
                 "Alerte inexistante.",
@@ -71,7 +71,7 @@ class DefenderSelect(discord.ui.UserSelect):
 
         alerts_cog = interaction.client.get_cog("AlertsCog")
         if alerts_cog:
-            await alerts_cog.update_alert_message(msg.id)
+            await alerts_cog.update_alert_message(self.alert_id)
 
         await interaction.response.send_message(
             "Défenseurs ajoutés.",
@@ -80,9 +80,9 @@ class DefenderSelect(discord.ui.UserSelect):
 
 
 class DefenderSelectView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, alert_id: int):
         super().__init__(timeout=60)
-        self.add_item(DefenderSelect())
+        self.add_item(DefenderSelect(alert_id))
 
 
 # -----------------------------
@@ -103,8 +103,8 @@ class AlertView(discord.ui.View):
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
-        msg = interaction.message
-        data = alerts_data.get(msg.id)
+        alert_id = interaction.message.id
+        data = alerts_data.get(alert_id)
         if not data:
             return await interaction.response.send_message(
                 "Alerte inexistante.",
@@ -119,7 +119,7 @@ class AlertView(discord.ui.View):
 
         await interaction.response.send_message(
             "Sélectionne les défenseurs :",
-            view=DefenderSelectView(),
+            view=DefenderSelectView(alert_id),
             ephemeral=True,
         )
 
