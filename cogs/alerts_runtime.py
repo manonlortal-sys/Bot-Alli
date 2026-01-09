@@ -7,7 +7,7 @@ alerts_data = {}  # message_id -> state
 
 
 def update_embed(embed: discord.Embed, data: dict) -> discord.Embed:
-    # On nettoie uniquement les champs dynamiques
+    # Nettoyage des champs dynamiques uniquement
     embed.clear_fields()
 
     defenders = (
@@ -74,8 +74,14 @@ class AddDefenderModal(discord.ui.Modal, title="Ajouter défenseurs"):
             data["defenders"].add(u.id)
 
         msg = await interaction.channel.fetch_message(self.message_id)
-        embed = msg.embeds[0]
 
+        if not msg.embeds:
+            return await interaction.response.send_message(
+                "Impossible de mettre à jour l’alerte.",
+                ephemeral=True,
+            )
+
+        embed = msg.embeds[0]
         await msg.edit(embed=update_embed(embed, data))
 
         await interaction.response.send_message(
@@ -111,17 +117,23 @@ class AlertsRuntimeCog(commands.Cog, name="AlertsRuntimeCog"):
         alerts_data[message.id] = {
             "author": author.id,
             "defenders": set(),
-            "result": None,      # win / lose
+            "result": None,      # "win" | "lose"
             "incomplete": False,
         }
 
+        # Ajout du bouton 👤 sans toucher à l’embed
         await message.edit(view=AlertView(message.id))
 
+        # Réactions demandées
         for e in ("👍", "🏆", "❌", "😡"):
-            await message.add_reaction(e)
+            try:
+                await message.add_reaction(e)
+            except discord.HTTPException:
+                pass
 
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload: discord.RawReactionActionEvent):
+        # Ignore réactions du bot
         if payload.user_id == self.bot.user.id:
             return
 
@@ -129,11 +141,24 @@ class AlertsRuntimeCog(commands.Cog, name="AlertsRuntimeCog"):
         if not data:
             return
 
+        # Récupération du channel
         channel = self.bot.get_channel(payload.channel_id)
         if channel is None:
-            channel = await self.bot.fetch_channel(payload.channel_id)
+            try:
+                channel = await self.bot.fetch_channel(payload.channel_id)
+            except discord.HTTPException:
+                return
 
-        msg = await channel.fetch_message(payload.message_id)
+        # Récupération du message (cache-safe)
+        try:
+            msg = await channel.fetch_message(payload.message_id)
+        except discord.HTTPException:
+            return
+
+        # 🔴 PROTECTION CLÉ : embed absent = on stop proprement
+        if not msg.embeds:
+            return
+
         embed = msg.embeds[0]
         emoji = str(payload.emoji)
 
@@ -142,15 +167,22 @@ class AlertsRuntimeCog(commands.Cog, name="AlertsRuntimeCog"):
 
         elif emoji == "🏆":
             data["result"] = "win"
-            await msg.clear_reaction("❌")
+            try:
+                await msg.clear_reaction("❌")
+            except discord.HTTPException:
+                pass
 
         elif emoji == "❌":
             data["result"] = "lose"
-            await msg.clear_reaction("🏆")
+            try:
+                await msg.clear_reaction("🏆")
+            except discord.HTTPException:
+                pass
 
         elif emoji == "😡":
             data["incomplete"] = True
 
+        # Mise à jour VISUELLE de l’embed existant
         await msg.edit(embed=update_embed(embed, data))
 
 
