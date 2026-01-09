@@ -31,7 +31,6 @@ BUTTONS = [
 # =============================
 alerts_data: dict[int, dict] = {}
 
-
 # =============================
 # COOLDOWN
 # =============================
@@ -41,7 +40,6 @@ def check_cooldown(key: str) -> bool:
         return False
     last_ping[key] = now
     return True
-
 
 # =============================
 # USER SELECT
@@ -79,8 +77,7 @@ class DefenderSelect(discord.ui.UserSelect):
         for user in self.values:
             if len(data["defenders"]) >= MAX_DEFENDERS:
                 break
-            ok = await alerts_cog.add_defender_to_alert(self.alert_id, user.id)
-            if ok:
+            if await alerts_cog.add_defender_to_alert(self.alert_id, user.id):
                 added.append(user.mention)
 
         msg = (
@@ -90,29 +87,28 @@ class DefenderSelect(discord.ui.UserSelect):
         )
         await interaction.response.edit_message(content=msg, view=None)
 
-
 class DefenderSelectView(discord.ui.View):
     def __init__(self, bot: commands.Bot, alert_id: int):
         super().__init__(timeout=60)
         self.add_item(DefenderSelect(bot, alert_id))
 
-
 class AlertView(discord.ui.View):
-    def __init__(self, bot: commands.Bot):
-        super().__init__(timeout=None)
+    def __init__(self, bot: commands.Bot, alert_id: int):
+        super().__init__(timeout=300)
         self.bot = bot
+        self.alert_id = alert_id
 
     @discord.ui.button(
         label="Ajout défenseurs",
         emoji="👤",
         style=discord.ButtonStyle.success,
-        custom_id="alert_add_defender",
     )
-    async def defender_button(
-        self, interaction: discord.Interaction, button: discord.ui.Button
+    async def add_defender(
+        self,
+        interaction: discord.Interaction,
+        button: discord.ui.Button,
     ):
-        alert_id = interaction.message.id
-        data = alerts_data.get(alert_id)
+        data = alerts_data.get(self.alert_id)
         if not data:
             return await interaction.response.send_message(
                 "Cette alerte n'existe plus.", ephemeral=True
@@ -130,11 +126,10 @@ class AlertView(discord.ui.View):
                 ephemeral=True,
             )
 
-        view = DefenderSelectView(self.bot, alert_id)
+        view = DefenderSelectView(self.bot, self.alert_id)
         await interaction.response.send_message(
             "Sélectionne les défenseurs :", view=view, ephemeral=True
         )
-
 
 # =============================
 # COG
@@ -142,8 +137,6 @@ class AlertView(discord.ui.View):
 class AlertsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.alert_view = AlertView(bot)
-        bot.add_view(self.alert_view)
 
     # ---------- EMBED ----------
     def build_embed(self, data: dict) -> discord.Embed:
@@ -151,8 +144,6 @@ class AlertsCog(commands.Cog):
             color = discord.Color.green()
         elif data["result"] == "lose":
             color = discord.Color.red()
-        elif data["incomplete"]:
-            color = discord.Color.orange()
         else:
             color = discord.Color.orange()
 
@@ -200,7 +191,10 @@ class AlertsCog(commands.Cog):
         if not isinstance(channel, discord.TextChannel):
             return
         msg = await channel.fetch_message(alert_id)
-        await msg.edit(embed=self.build_embed(data), view=self.alert_view)
+        await msg.edit(
+            embed=self.build_embed(data),
+            view=AlertView(self.bot, alert_id),
+        )
 
     # ---------- API ----------
     async def add_defender_to_alert(self, alert_id: int, user_id: int) -> bool:
@@ -235,9 +229,7 @@ class AlertsCog(commands.Cog):
         alerts_data[alert_id]["incomplete"] = not alerts_data[alert_id]["incomplete"]
         await self.update_alert_message(alert_id)
 
-    # ---------- ALERT / PANEL / TEST ----------
-    # (INCHANGÉS par rapport à la version fonctionnelle)
-
+    # ---------- ALERT ----------
     async def send_alert(self, interaction, cooldown_key, role_id):
         if not check_cooldown(cooldown_key):
             return await interaction.response.send_message(
@@ -259,8 +251,12 @@ class AlertsCog(commands.Cog):
             "incomplete": False,
         }
 
-        msg = await channel.send(embed=self.build_embed(data), view=self.alert_view)
+        msg = await channel.send(
+            embed=self.build_embed(data),
+            view=AlertView(self.bot, 0),
+        )
         alerts_data[msg.id] = data
+        await msg.edit(view=AlertView(self.bot, msg.id))
 
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
@@ -281,13 +277,20 @@ class AlertsCog(commands.Cog):
             "incomplete": False,
         }
 
-        msg = await channel.send(embed=self.build_embed(data), view=self.alert_view)
+        msg = await channel.send(
+            embed=self.build_embed(data),
+            view=AlertView(self.bot, 0),
+        )
         alerts_data[msg.id] = data
+        await msg.edit(view=AlertView(self.bot, msg.id))
 
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
 
-    @app_commands.command(name="pingpanel", description="Affiche le panneau de ping défense.")
+    @app_commands.command(
+        name="pingpanel",
+        description="Affiche le panneau de ping défense.",
+    )
     async def pingpanel(self, interaction: discord.Interaction):
         view = discord.ui.View(timeout=None)
 
@@ -305,7 +308,9 @@ class AlertsCog(commands.Cog):
             btn.callback = callback
             view.add_item(btn)
 
-        test_btn = discord.ui.Button(label="TEST", style=discord.ButtonStyle.secondary)
+        test_btn = discord.ui.Button(
+            label="TEST", style=discord.ButtonStyle.secondary
+        )
         test_btn.callback = self.send_test_alert
         view.add_item(test_btn)
 
