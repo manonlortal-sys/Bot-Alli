@@ -2,7 +2,6 @@
 
 import discord
 from discord.ext import commands
-
 from cogs.alerts import alerts_data
 
 
@@ -20,9 +19,6 @@ class Reactions(commands.Cog):
             return
 
         alerts_cog = self.bot.get_cog("AlertsCog")
-        if not alerts_cog:
-            return
-
         emoji = str(payload.emoji)
 
         if emoji == "👍":
@@ -42,9 +38,6 @@ class Reactions(commands.Cog):
             return
 
         alerts_cog = self.bot.get_cog("AlertsCog")
-        if not alerts_cog:
-            return
-
         emoji = str(payload.emoji)
 
         if emoji == "👍":
