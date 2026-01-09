@@ -81,7 +81,7 @@ class DefenderSelect(discord.ui.UserSelect):
 
 class DefenderSelectView(discord.ui.View):
     def __init__(self, alert_id: int):
-        super().__init__(timeout=60)
+        super().__init__(timeout=300)  # ✅ CHANGÉ (était None)
         self.add_item(DefenderSelect(alert_id))
 
 
@@ -90,7 +90,7 @@ class DefenderSelectView(discord.ui.View):
 # -----------------------------
 class AlertView(discord.ui.View):
     def __init__(self, alert_id: int):
-        super().__init__(timeout=None)
+        super().__init__(timeout=300)  # ✅ CHANGÉ (était None)
         self.alert_id = alert_id
 
     @discord.ui.Button(
@@ -194,31 +194,6 @@ class AlertsCog(commands.Cog):
             embed=self.build_embed(data),
             view=AlertView(message_id),
         )
-
-    # ---------- API RÉACTIONS ----------
-    async def add_defender(self, message_id: int, user_id: int):
-        alerts_data[message_id]["defenders"].add(user_id)
-        await self.update_alert_message(message_id)
-
-    async def remove_defender(self, message_id: int, user_id: int):
-        alerts_data[message_id]["defenders"].discard(user_id)
-        await self.update_alert_message(message_id)
-
-    async def set_result(self, message_id: int, result: str):
-        alerts_data[message_id]["result"] = result
-        await self.update_alert_message(message_id)
-
-    async def clear_result(self, message_id: int):
-        alerts_data[message_id]["result"] = None
-        await self.update_alert_message(message_id)
-
-    async def toggle_incomplete(self, message_id: int):
-        alerts_data[message_id]["incomplete"] = not alerts_data[message_id]["incomplete"]
-        await self.update_alert_message(message_id)
-
-    async def clear_incomplete(self, message_id: int):
-        alerts_data[message_id]["incomplete"] = False
-        await self.update_alert_message(message_id)
 
     # ---------- ALERT ----------
     async def send_alert(self, interaction, cooldown_key, role_id):
