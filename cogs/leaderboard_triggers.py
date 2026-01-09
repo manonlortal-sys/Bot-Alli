@@ -15,10 +15,9 @@ TOP_LIMIT = 20
 class LeaderboardTriggers(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.message_id: int | None = None
 
     # -----------------------------
-    # CALCUL DES STATS
+    # CALCUL
     # -----------------------------
     def compute_ranking(self) -> Dict[int, int]:
         counts: Dict[int, int] = {}
@@ -73,38 +72,24 @@ class LeaderboardTriggers(commands.Cog):
         return embed
 
     # -----------------------------
-    # MESSAGE MANAGEMENT
+    # MESSAGE UNIQUE
     # -----------------------------
-    async def ensure_message(self):
+    async def get_or_create_message(self) -> discord.Message | None:
         channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
         if not isinstance(channel, discord.TextChannel):
-            return
+            return None
 
-        if self.message_id:
-            try:
-                await channel.fetch_message(self.message_id)
-                return
-            except discord.HTTPException:
-                self.message_id = None
+        async for msg in channel.history(limit=20):
+            if msg.author.id == self.bot.user.id and msg.embeds:
+                if msg.embeds[0].title == "🚨 Leaderboard Déclencheurs d’Alertes":
+                    return msg
 
-        msg = await channel.send(embed=self.build_embed())
-        self.message_id = msg.id
+        return await channel.send(embed=self.build_embed())
 
     async def refresh(self):
-        channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
-        if not isinstance(channel, discord.TextChannel):
+        msg = await self.get_or_create_message()
+        if not msg:
             return
-
-        await self.ensure_message()
-        if not self.message_id:
-            return
-
-        try:
-            msg = await channel.fetch_message(self.message_id)
-        except discord.HTTPException:
-            self.message_id = None
-            return
-
         await msg.edit(embed=self.build_embed())
 
     # -----------------------------
@@ -112,7 +97,6 @@ class LeaderboardTriggers(commands.Cog):
     # -----------------------------
     @commands.Cog.listener()
     async def on_ready(self):
-        await self.ensure_message()
         await self.refresh()
 
     @commands.Cog.listener()
