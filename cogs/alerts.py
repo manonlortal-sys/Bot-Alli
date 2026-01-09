@@ -109,13 +109,21 @@ class AlertsCog(commands.Cog):
 
         await msg.edit(embed=self.build_embed(data))
 
-    # ---------- API APPELÉE PAR reactions.py ----------
+    # ---------- API RÉACTIONS ----------
     async def add_defender(self, message_id: int, user_id: int):
         data = alerts_data.get(message_id)
         if not data:
             return
         data["defenders"].add(user_id)
         await self.update_alert_message(message_id)
+
+    async def remove_defender(self, message_id: int, user_id: int):
+        data = alerts_data.get(message_id)
+        if not data:
+            return
+        if user_id in data["defenders"]:
+            data["defenders"].remove(user_id)
+            await self.update_alert_message(message_id)
 
     async def set_result(self, message_id: int, result: str):
         data = alerts_data.get(message_id)
@@ -124,11 +132,25 @@ class AlertsCog(commands.Cog):
         data["result"] = result
         await self.update_alert_message(message_id)
 
+    async def clear_result(self, message_id: int):
+        data = alerts_data.get(message_id)
+        if not data:
+            return
+        data["result"] = None
+        await self.update_alert_message(message_id)
+
     async def toggle_incomplete(self, message_id: int):
         data = alerts_data.get(message_id)
         if not data:
             return
         data["incomplete"] = not data["incomplete"]
+        await self.update_alert_message(message_id)
+
+    async def clear_incomplete(self, message_id: int):
+        data = alerts_data.get(message_id)
+        if not data:
+            return
+        data["incomplete"] = False
         await self.update_alert_message(message_id)
 
     # ---------- ALERT ----------
@@ -203,7 +225,7 @@ class AlertsCog(commands.Cog):
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
 
-    # ---------- PANEL (INCHANGÉ) ----------
+    # ---------- PANEL ----------
     @app_commands.command(
         name="pingpanel",
         description="Affiche le panneau de ping défense.",
