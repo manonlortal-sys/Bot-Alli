@@ -19,6 +19,9 @@ class Reactions(commands.Cog):
             return
 
         alerts_cog = self.bot.get_cog("AlertsCog")
+        if not alerts_cog:
+            return
+
         emoji = str(payload.emoji)
 
         if emoji == "👍":
@@ -38,12 +41,13 @@ class Reactions(commands.Cog):
             return
 
         alerts_cog = self.bot.get_cog("AlertsCog")
+        if not alerts_cog:
+            return
+
         emoji = str(payload.emoji)
 
         if emoji == "👍":
-            await alerts_cog.remove_defender_from_alert(
-                payload.message_id, payload.user_id
-            )
+            await alerts_cog.remove_defender_from_alert(payload.message_id, payload.user_id)
 
 
 async def setup(bot: commands.Bot):
