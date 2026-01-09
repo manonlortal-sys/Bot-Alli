@@ -213,7 +213,6 @@ class AlertsCog(commands.Cog):
 
         await msg.edit(embed=self.build_embed(data), view=self.alert_view)
 
-        # ✅ SYNC LEADERBOARD (CORRECTION CLÉ)
         leaderboard = self.bot.get_cog("Leaderboard")
         if leaderboard:
             await leaderboard.refresh()
@@ -260,7 +259,23 @@ class AlertsCog(commands.Cog):
         data["incomplete"] = not data["incomplete"]
         await self.update_alert_message(alert_id)
 
-    # ---------- ALERT ----------
+    # ---------- NOUVEAU : SUPPRESSION D’ALERTE ----------
+    @commands.Cog.listener()
+    async def on_raw_message_delete(self, payload: discord.RawMessageDeleteEvent):
+        if payload.message_id not in alerts_data:
+            return
+
+        # Supprime l’alerte du state
+        alerts_data.pop(payload.message_id, None)
+
+        # Met à jour le leaderboard
+        leaderboard = self.bot.get_cog("Leaderboard")
+        if leaderboard:
+            await leaderboard.refresh()
+
+    # ---------- ALERT / PANEL / TEST ----------
+    # (INCHANGÉS)
+
     async def send_alert(self, interaction, cooldown_key, role_id):
         if not check_cooldown(cooldown_key):
             return await interaction.response.send_message(
@@ -296,7 +311,6 @@ class AlertsCog(commands.Cog):
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
 
-    # ---------- TEST ----------
     async def send_test_alert(self, interaction):
         if not any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles):
             return await interaction.response.send_message(
@@ -332,7 +346,6 @@ class AlertsCog(commands.Cog):
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
 
-    # ---------- PANEL ----------
     @app_commands.command(
         name="pingpanel",
         description="Affiche le panneau de ping défense.",
