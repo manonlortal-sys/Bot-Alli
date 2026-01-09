@@ -63,23 +63,18 @@ class AddDefendersModal(discord.ui.Modal, title="Ajouter des défenseurs"):
                 ephemeral=True,
             )
 
-        # Vérification 👍
         if interaction.user.id not in data["defenders"]:
             return await interaction.response.send_message(
                 "Tu dois avoir 👍 sur l’alerte pour ajouter des défenseurs.",
                 ephemeral=True,
             )
 
-        added = False
         for user in interaction.mentions[:4]:
-            if user.id not in data["defenders"]:
-                data["defenders"].add(user.id)
-                added = True
+            data["defenders"].add(user.id)
 
-        if added:
-            alerts_cog = interaction.client.get_cog("AlertsCog")
-            if alerts_cog:
-                await alerts_cog.update_alert_message(self.message_id)
+        alerts_cog = interaction.client.get_cog("AlertsCog")
+        if alerts_cog:
+            await alerts_cog.update_alert_message(self.message_id)
 
         await interaction.response.send_message(
             "Défenseurs ajoutés.",
@@ -91,7 +86,7 @@ class AddDefendersModal(discord.ui.Modal, title="Ajouter des défenseurs"):
 # VIEW MESSAGE ALERTE
 # -----------------------------
 class AlertView(discord.ui.View):
-    def __init__(self, message_id: int):
+    def __init__(self, message_id: int | None = None):
         super().__init__(timeout=None)
         self.message_id = message_id
 
@@ -99,12 +94,16 @@ class AlertView(discord.ui.View):
         label="Ajouter défenseur",
         emoji="👤",
         style=discord.ButtonStyle.secondary,
+        custom_id="alert_add_defender",
     )
     async def add_defender(
         self,
         interaction: discord.Interaction,
         button: discord.ui.Button,
     ):
+        if self.message_id is None:
+            return
+
         data = alerts_data.get(self.message_id)
         if not data:
             return await interaction.response.send_message(
@@ -112,7 +111,6 @@ class AlertView(discord.ui.View):
                 ephemeral=True,
             )
 
-        # Vérification 👍
         if interaction.user.id not in data["defenders"]:
             return await interaction.response.send_message(
                 "Tu dois avoir 👍 sur l’alerte pour utiliser ce bouton.",
@@ -130,6 +128,8 @@ class AlertView(discord.ui.View):
 class AlertsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
+        # 🔴 ENREGISTREMENT DE LA VIEW PERSISTANTE (FIX)
+        bot.add_view(AlertView())
 
     # ---------- EMBED ----------
     def build_embed(self, data: dict) -> discord.Embed:
@@ -208,9 +208,8 @@ class AlertsCog(commands.Cog):
         data = alerts_data.get(message_id)
         if not data:
             return
-        if user_id in data["defenders"]:
-            data["defenders"].remove(user_id)
-            await self.update_alert_message(message_id)
+        data["defenders"].discard(user_id)
+        await self.update_alert_message(message_id)
 
     async def set_result(self, message_id: int, result: str):
         data = alerts_data.get(message_id)
@@ -272,7 +271,7 @@ class AlertsCog(commands.Cog):
 
         msg = await channel.send(
             embed=self.build_embed(data),
-            view=AlertView(0),  # remplacé juste après
+            view=AlertView(None),
         )
 
         alerts_data[msg.id] = data
@@ -313,7 +312,7 @@ class AlertsCog(commands.Cog):
 
         msg = await channel.send(
             embed=self.build_embed(data),
-            view=AlertView(0),
+            view=AlertView(None),
         )
 
         alerts_data[msg.id] = data
