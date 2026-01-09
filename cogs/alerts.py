@@ -16,7 +16,7 @@ COOLDOWN = 30
 last_ping: dict[str, float] = {}
 
 # -----------------------------
-# BUTTONS (INCHANGÉ)
+# BUTTONS PANEL (INCHANGÉ)
 # -----------------------------
 BUTTONS = [
     ("WANTED", 1326671483455537172, "Def"),
@@ -41,41 +41,32 @@ def check_cooldown(key: str) -> bool:
 
 
 # -----------------------------
-# MODAL AJOUT DEFENSEURS
+# USER SELECT
 # -----------------------------
-class AddDefendersModal(discord.ui.Modal, title="Ajouter des défenseurs"):
-    mentions = discord.ui.TextInput(
-        label="Mentions des défenseurs (max 4)",
-        placeholder="@Pseudo1 @Pseudo2",
-        required=True,
-        max_length=200,
-    )
-
+class DefenderSelect(discord.ui.UserSelect):
     def __init__(self):
-        super().__init__()
+        super().__init__(
+            placeholder="Sélectionne des défenseurs…",
+            min_values=1,
+            max_values=4,
+        )
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction):
         msg = interaction.message
-        if not msg:
-            return await interaction.response.send_message(
-                "Impossible de retrouver l’alerte.",
-                ephemeral=True,
-            )
-
         data = alerts_data.get(msg.id)
         if not data:
             return await interaction.response.send_message(
-                "Cette alerte n’existe plus.",
+                "Alerte inexistante.",
                 ephemeral=True,
             )
 
         if interaction.user.id not in data["defenders"]:
             return await interaction.response.send_message(
-                "Tu dois avoir 👍 sur l’alerte pour ajouter des défenseurs.",
+                "Tu dois avoir 👍 sur l’alerte.",
                 ephemeral=True,
             )
 
-        for user in interaction.mentions[:4]:
+        for user in self.values:
             data["defenders"].add(user.id)
 
         alerts_cog = interaction.client.get_cog("AlertsCog")
@@ -88,8 +79,14 @@ class AddDefendersModal(discord.ui.Modal, title="Ajouter des défenseurs"):
         )
 
 
+class DefenderSelectView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=60)
+        self.add_item(DefenderSelect())
+
+
 # -----------------------------
-# VIEW PERSISTANTE (1 seule)
+# VIEW MESSAGE ALERTE
 # -----------------------------
 class AlertView(discord.ui.View):
     def __init__(self):
@@ -107,26 +104,24 @@ class AlertView(discord.ui.View):
         button: discord.ui.Button,
     ):
         msg = interaction.message
-        if not msg:
-            return await interaction.response.send_message(
-                "Impossible de retrouver l’alerte.",
-                ephemeral=True,
-            )
-
         data = alerts_data.get(msg.id)
         if not data:
             return await interaction.response.send_message(
-                "Cette alerte n’existe plus.",
+                "Alerte inexistante.",
                 ephemeral=True,
             )
 
         if interaction.user.id not in data["defenders"]:
             return await interaction.response.send_message(
-                "Tu dois avoir 👍 sur l’alerte pour utiliser ce bouton.",
+                "Tu dois avoir 👍 sur l’alerte.",
                 ephemeral=True,
             )
 
-        await interaction.response.send_modal(AddDefendersModal())
+        await interaction.response.send_message(
+            "Sélectionne les défenseurs :",
+            view=DefenderSelectView(),
+            ephemeral=True,
+        )
 
 
 # -----------------------------
@@ -136,7 +131,7 @@ class AlertsCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.alert_view = AlertView()
-        bot.add_view(self.alert_view)  # ✅ persistante
+        bot.add_view(self.alert_view)
 
     # ---------- EMBED ----------
     def build_embed(self, data: dict) -> discord.Embed:
@@ -205,62 +200,38 @@ class AlertsCog(commands.Cog):
 
     # ---------- API RÉACTIONS ----------
     async def add_defender(self, message_id: int, user_id: int):
-        data = alerts_data.get(message_id)
-        if not data:
-            return
-        data["defenders"].add(user_id)
+        alerts_data[message_id]["defenders"].add(user_id)
         await self.update_alert_message(message_id)
 
     async def remove_defender(self, message_id: int, user_id: int):
-        data = alerts_data.get(message_id)
-        if not data:
-            return
-        data["defenders"].discard(user_id)
+        alerts_data[message_id]["defenders"].discard(user_id)
         await self.update_alert_message(message_id)
 
     async def set_result(self, message_id: int, result: str):
-        data = alerts_data.get(message_id)
-        if not data:
-            return
-        data["result"] = result
+        alerts_data[message_id]["result"] = result
         await self.update_alert_message(message_id)
 
     async def clear_result(self, message_id: int):
-        data = alerts_data.get(message_id)
-        if not data:
-            return
-        data["result"] = None
+        alerts_data[message_id]["result"] = None
         await self.update_alert_message(message_id)
 
     async def toggle_incomplete(self, message_id: int):
-        data = alerts_data.get(message_id)
-        if not data:
-            return
-        data["incomplete"] = not data["incomplete"]
+        alerts_data[message_id]["incomplete"] = not alerts_data[message_id]["incomplete"]
         await self.update_alert_message(message_id)
 
     async def clear_incomplete(self, message_id: int):
-        data = alerts_data.get(message_id)
-        if not data:
-            return
-        data["incomplete"] = False
+        alerts_data[message_id]["incomplete"] = False
         await self.update_alert_message(message_id)
 
     # ---------- ALERT ----------
     async def send_alert(self, interaction, cooldown_key, role_id):
         if not check_cooldown(cooldown_key):
             return await interaction.response.send_message(
-                "❌ Une alerte a déjà été envoyée récemment.",
+                "❌ Alerte déjà envoyée récemment.",
                 ephemeral=True,
             )
 
         channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
-        if not channel:
-            return await interaction.response.send_message(
-                "❌ Salon d’alerte introuvable.",
-                ephemeral=True,
-            )
-
         await interaction.response.send_message(
             f"Alerte envoyée : **{cooldown_key}**.",
             ephemeral=True,
@@ -295,12 +266,6 @@ class AlertsCog(commands.Cog):
             )
 
         channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
-        if not channel:
-            return await interaction.response.send_message(
-                "❌ Salon d’alerte introuvable.",
-                ephemeral=True,
-            )
-
         await interaction.response.send_message(
             "Alerte TEST envoyée.",
             ephemeral=True,
