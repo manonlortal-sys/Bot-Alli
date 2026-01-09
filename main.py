@@ -34,8 +34,8 @@ async def setup_hook():
     print("🚀 setup_hook…")
 
     for ext in [
-        "cogs.alerts_runtime",
-        "cogs.panel",
+        "cogs.alerts",
+        "cogs.reactions",
     ]:
         try:
             await bot.load_extension(ext)
