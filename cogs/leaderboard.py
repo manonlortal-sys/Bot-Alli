@@ -6,7 +6,6 @@ import discord
 from discord.ext import commands
 from typing import Dict, Set
 
-# ⚠️ On lit l’état existant, on ne le modifie pas ici
 from cogs.alerts import alerts_data
 
 LEADERBOARD_CHANNEL_ID = 1459091766098788445
@@ -16,7 +15,6 @@ TOP_LIMIT = 20
 class Leaderboard(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.message_id: int | None = None
 
     # -----------------------------
     # CALCUL DES STATS
@@ -30,9 +28,8 @@ class Leaderboard(commands.Cog):
         }
 
         players: Dict[int, Dict[str, int]] = {}
-        counted_incomplete_alerts: Set[int] = set()
 
-        for alert_id, data in alerts_data.items():
+        for data in alerts_data.values():
             global_stats["attacks"] += 1
 
             if data["result"] == "win":
@@ -42,7 +39,6 @@ class Leaderboard(commands.Cog):
 
             if data["incomplete"]:
                 global_stats["incomplete"] += 1
-                counted_incomplete_alerts.add(alert_id)
 
             for uid in data["defenders"]:
                 p = players.setdefault(
@@ -85,7 +81,6 @@ class Leaderboard(commands.Cog):
             inline=False,
         )
 
-        # Classement par défenses
         sorted_players = sorted(
             players.items(),
             key=lambda x: x[1]["defenses"],
@@ -100,13 +95,13 @@ class Leaderboard(commands.Cog):
             )
             return embed
 
-        lines = []
         medals = ["🥇", "🥈", "🥉"]
+        lines = []
 
         for idx, (uid, stats) in enumerate(sorted_players, start=1):
-            medal = medals[idx - 1] if idx <= 3 else f"{idx}."
+            prefix = medals[idx - 1] if idx <= 3 else f"{idx}."
             lines.append(
-                f"{medal} <@{uid}> — "
+                f"{prefix} <@{uid}> — "
                 f"🛡️ {stats['defenses']} | "
                 f"🏆 {stats['wins']} | "
                 f"❌ {stats['losses']} | "
@@ -123,38 +118,24 @@ class Leaderboard(commands.Cog):
         return embed
 
     # -----------------------------
-    # MESSAGE MANAGEMENT
+    # MESSAGE UNIQUE
     # -----------------------------
-    async def ensure_message(self):
+    async def get_or_create_message(self) -> discord.Message | None:
         channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
         if not isinstance(channel, discord.TextChannel):
-            return
+            return None
 
-        if self.message_id:
-            try:
-                await channel.fetch_message(self.message_id)
-                return
-            except discord.HTTPException:
-                self.message_id = None
+        async for msg in channel.history(limit=20):
+            if msg.author.id == self.bot.user.id and msg.embeds:
+                if msg.embeds[0].title == "📊 Leaderboard Défense Percepteurs":
+                    return msg
 
-        msg = await channel.send(embed=self.build_embed())
-        self.message_id = msg.id
+        return await channel.send(embed=self.build_embed())
 
     async def refresh(self):
-        channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
-        if not isinstance(channel, discord.TextChannel):
+        msg = await self.get_or_create_message()
+        if not msg:
             return
-
-        await self.ensure_message()
-        if not self.message_id:
-            return
-
-        try:
-            msg = await channel.fetch_message(self.message_id)
-        except discord.HTTPException:
-            self.message_id = None
-            return
-
         await msg.edit(embed=self.build_embed())
 
     # -----------------------------
@@ -162,10 +143,8 @@ class Leaderboard(commands.Cog):
     # -----------------------------
     @commands.Cog.listener()
     async def on_ready(self):
-        await self.ensure_message()
         await self.refresh()
 
-    # Hook léger : on refresh souvent, coût faible vu le volume
     @commands.Cog.listener()
     async def on_raw_reaction_add(self, payload):
         await self.refresh()
