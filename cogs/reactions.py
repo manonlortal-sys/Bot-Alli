@@ -6,7 +6,7 @@ from cogs.alerts import alerts_data
 
 
 class Reactions(commands.Cog):
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
 
     @commands.Cog.listener()
@@ -22,11 +22,11 @@ class Reactions(commands.Cog):
         emoji = str(payload.emoji)
 
         if emoji == "👍":
-            await alerts_cog.add_defender(payload.message_id, payload.user_id)
+            await alerts_cog.add_defender_to_alert(payload.message_id, payload.user_id)
         elif emoji == "🏆":
-            await alerts_cog.set_result(payload.message_id, "win")
+            await alerts_cog.mark_defense_won(payload.message_id)
         elif emoji == "❌":
-            await alerts_cog.set_result(payload.message_id, "lose")
+            await alerts_cog.mark_defense_lost(payload.message_id)
         elif emoji == "😡":
             await alerts_cog.toggle_incomplete(payload.message_id)
 
@@ -41,12 +41,10 @@ class Reactions(commands.Cog):
         emoji = str(payload.emoji)
 
         if emoji == "👍":
-            await alerts_cog.remove_defender(payload.message_id, payload.user_id)
-        elif emoji in ("🏆", "❌"):
-            await alerts_cog.clear_result(payload.message_id)
-        elif emoji == "😡":
-            await alerts_cog.clear_incomplete(payload.message_id)
+            await alerts_cog.remove_defender_from_alert(
+                payload.message_id, payload.user_id
+            )
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(Reactions(bot))
