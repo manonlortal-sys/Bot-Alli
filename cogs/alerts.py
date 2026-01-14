@@ -10,47 +10,6 @@ from discord.ext import commands
 from discord import app_commands
 
 # =============================
-# PERSISTENCE
-# =============================
-DATA_PATH = "/var/data/alerts_data.json"
-
-def load_alerts_data() -> dict[int, dict]:
-    if not os.path.exists(DATA_PATH):
-        return {}
-
-    with open(DATA_PATH, "r", encoding="utf-8") as f:
-        raw = json.load(f)
-
-    data: dict[int, dict] = {}
-    for k, v in raw.items():
-        data[int(k)] = {
-            "author": v["author"],
-            "channel_id": v["channel_id"],
-            "defenders": set(v["defenders"]),
-            "result": v["result"],
-            "incomplete": v["incomplete"],
-        }
-    return data
-
-
-def save_alerts_data():
-    os.makedirs("/var/data", exist_ok=True)
-
-    serializable = {}
-    for k, v in alerts_data.items():
-        serializable[str(k)] = {
-            "author": v["author"],
-            "channel_id": v["channel_id"],
-            "defenders": list(v["defenders"]),
-            "result": v["result"],
-            "incomplete": v["incomplete"],
-        }
-
-    with open(DATA_PATH, "w", encoding="utf-8") as f:
-        json.dump(serializable, f, indent=2)
-
-
-# =============================
 # CONFIG
 # =============================
 ALERT_CHANNEL_ID = 1327548733398843413
@@ -59,6 +18,8 @@ ROLE_TEST_ID = 1358771105980088390
 
 MAX_DEFENDERS = 4
 COOLDOWN = 30
+DATA_PATH = "/var/data/alerts_data.json"
+
 last_ping: dict[str, float] = {}
 
 # =============================
@@ -70,13 +31,13 @@ BUTTONS = [
 ]
 
 # =============================
-# STATE (PERSISTANT)
+# STATE (en mémoire)
 # =============================
-alerts_data: dict[int, dict] = load_alerts_data()
+alerts_data: dict[int, dict] = {}
 
 
 # =============================
-# COOLDOWN
+# UTILS
 # =============================
 def check_cooldown(key: str) -> bool:
     now = time.time()
@@ -106,8 +67,7 @@ class DefenderSelect(discord.ui.UserSelect):
 
         added = []
         for user in self.values:
-            ok = await alerts_cog.add_defender_to_alert(self.alert_id, user.id)
-            if ok:
+            if await alerts_cog.add_defender_to_alert(self.alert_id, user.id):
                 added.append(user.mention)
 
         await interaction.response.edit_message(
@@ -159,7 +119,49 @@ class AlertView(discord.ui.View):
 class AlertsCog(commands.Cog):
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        bot.add_view(AlertView(bot))
+        self.alert_view = AlertView(bot)
+        bot.add_view(self.alert_view)
+
+        # Chargement PERSISTANT ici (et seulement ici)
+        self.load_data()
+
+    # ---------- PERSISTENCE ----------
+    def load_data(self):
+        if not os.path.exists(DATA_PATH):
+            return
+
+        try:
+            with open(DATA_PATH, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+
+            alerts_data.clear()
+            for k, v in raw.items():
+                alerts_data[int(k)] = {
+                    "author": v["author"],
+                    "channel_id": v["channel_id"],
+                    "defenders": set(v["defenders"]),
+                    "result": v["result"],
+                    "incomplete": v["incomplete"],
+                }
+        except Exception:
+            alerts_data.clear()
+
+    def save_data(self):
+        os.makedirs("/var/data", exist_ok=True)
+
+        serializable = {
+            str(k): {
+                "author": v["author"],
+                "channel_id": v["channel_id"],
+                "defenders": list(v["defenders"]),
+                "result": v["result"],
+                "incomplete": v["incomplete"],
+            }
+            for k, v in alerts_data.items()
+        }
+
+        with open(DATA_PATH, "w", encoding="utf-8") as f:
+            json.dump(serializable, f, indent=2)
 
     # ---------- EMBED ----------
     def build_embed(self, data: dict) -> discord.Embed:
@@ -212,11 +214,11 @@ class AlertsCog(commands.Cog):
 
         try:
             msg = await channel.fetch_message(alert_id)
-            await msg.edit(embed=self.build_embed(data), view=AlertView(self.bot))
+            await msg.edit(embed=self.build_embed(data), view=self.alert_view)
         except discord.HTTPException:
             pass
 
-        save_alerts_data()
+        self.save_data()
 
         leaderboard = self.bot.get_cog("Leaderboard")
         if leaderboard:
@@ -257,7 +259,7 @@ class AlertsCog(commands.Cog):
     async def on_raw_message_delete(self, payload):
         if payload.message_id in alerts_data:
             alerts_data.pop(payload.message_id)
-            save_alerts_data()
+            self.save_data()
 
     # ---------- COMMANDES ----------
     async def send_alert(self, interaction, cooldown_key, role_id):
@@ -280,9 +282,70 @@ class AlertsCog(commands.Cog):
             "incomplete": False,
         }
 
-        msg = await channel.send(embed=self.build_embed(data), view=AlertView(self.bot))
+        msg = await channel.send(embed=self.build_embed(data), view=self.alert_view)
         alerts_data[msg.id] = data
-        save_alerts_data()
+        self.save_data()
+
+        for e in ("👍", "🏆", "❌", "😡"):
+            await msg.add_reaction(e)
+
+    @app_commands.command(
+        name="pingpanel",
+        description="Affiche le panneau de ping défense.",
+    )
+    async def pingpanel(self, interaction: discord.Interaction):
+        view = discord.ui.View(timeout=None)
+
+        for label, role_id, key in BUTTONS:
+            async def callback(i, role_id=role_id, key=key):
+                await self.send_alert(i, key, role_id)
+
+            btn = discord.ui.Button(
+                label=label,
+                emoji="🪳",
+                style=discord.ButtonStyle.primary
+                if label.lower() == "wanted"
+                else discord.ButtonStyle.danger,
+            )
+            btn.callback = callback
+            view.add_item(btn)
+
+        test_btn = discord.ui.Button(label="TEST", style=discord.ButtonStyle.secondary)
+
+        async def test_cb(i):
+            await self.send_test_alert(i)
+
+        test_btn.callback = test_cb
+        view.add_item(test_btn)
+
+        embed = discord.Embed(
+            title="⚔️ Ping défense percepteurs",
+            description="Clique sur le bouton correspondant pour envoyer l’alerte.",
+            color=discord.Color.blurple(),
+        )
+
+        await interaction.response.send_message(embed=embed, view=view)
+
+    async def send_test_alert(self, interaction):
+        if not any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles):
+            return await interaction.response.send_message("Admin only.", ephemeral=True)
+
+        channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
+        await interaction.response.send_message("Alerte TEST envoyée.", ephemeral=True)
+
+        await channel.send(f"<@&{ROLE_TEST_ID}>")
+
+        data = {
+            "author": interaction.user.id,
+            "channel_id": channel.id,
+            "defenders": set(),
+            "result": None,
+            "incomplete": False,
+        }
+
+        msg = await channel.send(embed=self.build_embed(data), view=self.alert_view)
+        alerts_data[msg.id] = data
+        self.save_data()
 
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
