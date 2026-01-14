@@ -22,19 +22,12 @@ DATA_PATH = "/var/data/alerts_data.json"
 
 last_ping: dict[str, float] = {}
 
-# =============================
-# BUTTONS PANEL
-# =============================
 BUTTONS = [
     ("WANTED", 1326671483455537172, "Def"),
     ("Attaque simultanée", 1326671483455537172, "Def"),
 ]
 
-# =============================
-# STATE (en mémoire)
-# =============================
 alerts_data: dict[int, dict] = {}
-
 
 # =============================
 # UTILS
@@ -48,7 +41,7 @@ def check_cooldown(key: str) -> bool:
 
 
 # =============================
-# USER SELECT
+# UI
 # =============================
 class DefenderSelect(discord.ui.UserSelect):
     def __init__(self, bot: commands.Bot, alert_id: int):
@@ -65,13 +58,11 @@ class DefenderSelect(discord.ui.UserSelect):
         if not alerts_cog:
             return
 
-        added = []
         for user in self.values:
-            if await alerts_cog.add_defender_to_alert(self.alert_id, user.id):
-                added.append(user.mention)
+            await alerts_cog.add_defender_to_alert(self.alert_id, user.id)
 
         await interaction.response.edit_message(
-            content="Défenseurs ajoutés." if added else "Aucun défenseur ajouté.",
+            content="Défenseurs ajoutés.",
             view=None,
         )
 
@@ -87,9 +78,10 @@ class AlertView(discord.ui.View):
         super().__init__(timeout=None)
         self.bot = bot
 
+    # 🟢 Ajout défenseurs
     @discord.ui.button(
         label="Ajout défenseurs",
-        emoji="👤",
+        emoji="👥",
         style=discord.ButtonStyle.success,
         custom_id="alert_add_defender",
     )
@@ -112,6 +104,27 @@ class AlertView(discord.ui.View):
             ephemeral=True,
         )
 
+    # 🔴 SOLO
+    @discord.ui.button(
+        label="Solo",
+        emoji="👤",
+        style=discord.ButtonStyle.danger,
+        custom_id="alert_solo",
+    )
+    async def solo_button(self, interaction: discord.Interaction, _):
+        alert_id = interaction.message.id
+        alerts_cog = self.bot.get_cog("AlertsCog")
+        if not alerts_cog:
+            return
+
+        await alerts_cog.delete_alert(
+            alert_id,
+            interaction.channel,
+            interaction.user,
+        )
+
+        await interaction.response.defer()
+
 
 # =============================
 # COG
@@ -121,8 +134,6 @@ class AlertsCog(commands.Cog):
         self.bot = bot
         self.alert_view = AlertView(bot)
         bot.add_view(self.alert_view)
-
-        # Chargement PERSISTANT ici (et seulement ici)
         self.load_data()
 
     # ---------- PERSISTENCE ----------
@@ -148,7 +159,6 @@ class AlertsCog(commands.Cog):
 
     def save_data(self):
         os.makedirs("/var/data", exist_ok=True)
-
         serializable = {
             str(k): {
                 "author": v["author"],
@@ -255,11 +265,32 @@ class AlertsCog(commands.Cog):
         alerts_data[alert_id]["incomplete"] = not alerts_data[alert_id]["incomplete"]
         await self.update_alert_message(alert_id)
 
-    @commands.Cog.listener()
-    async def on_raw_message_delete(self, payload):
-        if payload.message_id in alerts_data:
-            alerts_data.pop(payload.message_id)
-            self.save_data()
+    async def delete_alert(
+        self,
+        alert_id: int,
+        channel: discord.abc.Messageable,
+        user: discord.User | discord.Member,
+    ):
+        if alert_id not in alerts_data:
+            return
+
+        alerts_data.pop(alert_id, None)
+        self.save_data()
+
+        try:
+            msg = await channel.fetch_message(alert_id)
+            await msg.delete()
+        except discord.HTTPException:
+            pass
+
+        username = user.display_name
+        await channel.send(
+            f"Une alerte a été supprimée par {username} : 1 seul attaquant"
+        )
+
+        leaderboard = self.bot.get_cog("Leaderboard")
+        if leaderboard:
+            await leaderboard.refresh()
 
     # ---------- COMMANDES ----------
     async def send_alert(self, interaction, cooldown_key, role_id):
@@ -273,6 +304,30 @@ class AlertsCog(commands.Cog):
         await interaction.response.send_message("Alerte envoyée.", ephemeral=True)
 
         await channel.send(f"<@&{role_id}> les cafards se font attaquer ! 🚨")
+
+        data = {
+            "author": interaction.user.id,
+            "channel_id": channel.id,
+            "defenders": set(),
+            "result": None,
+            "incomplete": False,
+        }
+
+        msg = await channel.send(embed=self.build_embed(data), view=self.alert_view)
+        alerts_data[msg.id] = data
+        self.save_data()
+
+        for e in ("👍", "🏆", "❌", "😡"):
+            await msg.add_reaction(e)
+
+    async def send_test_alert(self, interaction):
+        if not any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles):
+            return await interaction.response.send_message("Admin only.", ephemeral=True)
+
+        channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
+        await interaction.response.send_message("Alerte TEST envoyée.", ephemeral=True)
+
+        await channel.send(f"<@&{ROLE_TEST_ID}>")
 
         data = {
             "author": interaction.user.id,
@@ -325,30 +380,6 @@ class AlertsCog(commands.Cog):
         )
 
         await interaction.response.send_message(embed=embed, view=view)
-
-    async def send_test_alert(self, interaction):
-        if not any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles):
-            return await interaction.response.send_message("Admin only.", ephemeral=True)
-
-        channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
-        await interaction.response.send_message("Alerte TEST envoyée.", ephemeral=True)
-
-        await channel.send(f"<@&{ROLE_TEST_ID}>")
-
-        data = {
-            "author": interaction.user.id,
-            "channel_id": channel.id,
-            "defenders": set(),
-            "result": None,
-            "incomplete": False,
-        }
-
-        msg = await channel.send(embed=self.build_embed(data), view=self.alert_view)
-        alerts_data[msg.id] = data
-        self.save_data()
-
-        for e in ("👍", "🏆", "❌", "😡"):
-            await msg.add_reaction(e)
 
 
 async def setup(bot: commands.Bot):
