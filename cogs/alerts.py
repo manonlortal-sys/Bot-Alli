@@ -342,41 +342,47 @@ class AlertsCog(commands.Cog):
             await msg.add_reaction(e)
 
     @app_commands.command(
-        name="pingpanel",
-        description="Affiche le panneau de ping défense.",
-    )
-    async def pingpanel(self, interaction: discord.Interaction):
-        view = discord.ui.View(timeout=None)
+    name="pingpanel",
+    description="Affiche le panneau de ping défense.",
+)
+async def pingpanel(self, interaction: discord.Interaction):
+    view = discord.ui.View(timeout=None)
 
-        for label, roles, key in BUTTONS:
-            async def callback(i, roles=roles, label=label):
-                title = "⚠️ Percepteur attaqué" if label == "WANTED" else "⚠️ Attaque simultanée"
-                await self.send_alert(i, key, roles, title_override=title)
+    for label, role_id, key in BUTTONS:
+        async def callback(i, role_id=role_id, key=key):
+            # Pour "Attaque simultanée", on ping le rôle Def + rôle Simu
+            if label == "Attaque simultanée":
+                role_def = role_id
+                role_simu = 1328097429525893192
+                await self.send_alert(i, key, role_def)
+                await self.send_alert(i, key, role_simu)
+            else:
+                await self.send_alert(i, key, role_id)
 
-            btn = discord.ui.Button(
-                label=label,
-                style=discord.ButtonStyle.primary
-                if label == "WANTED"
-                else discord.ButtonStyle.danger,
-            )
-            btn.callback = callback
-            view.add_item(btn)
-
-        test_btn = discord.ui.Button(label="TEST", style=discord.ButtonStyle.secondary)
-
-        async def test_cb(i):
-            await self.send_test_alert(i)
-
-        test_btn.callback = test_cb
-        view.add_item(test_btn)
-
-        embed = discord.Embed(
-            title="⚔️ Ping défense percepteurs",
-            description="Clique sur le bouton correspondant pour envoyer l’alerte.",
-            color=discord.Color.blurple(),
+        btn = discord.ui.Button(
+            label=label,
+            emoji="⚔️" if label == "WANTED" else "💣",
+            style=discord.ButtonStyle.primary if label == "WANTED" else discord.ButtonStyle.danger,
         )
+        btn.callback = callback
+        view.add_item(btn)
 
-        await interaction.response.send_message(embed=embed, view=view)
+    # Bouton TEST
+    test_btn = discord.ui.Button(label="TEST", style=discord.ButtonStyle.secondary)
+
+    async def test_cb(i):
+        await self.send_test_alert(i)
+
+    test_btn.callback = test_cb
+    view.add_item(test_btn)
+
+    embed = discord.Embed(
+        title="⚔️ Ping défense percepteurs",
+        description="Clique sur le bouton correspondant pour envoyer l’alerte.",
+        color=discord.Color.blurple(),
+    )
+
+    await interaction.response.send_message(embed=embed, view=view)
 
 
 async def setup(bot: commands.Bot):
