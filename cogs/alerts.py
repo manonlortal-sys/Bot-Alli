@@ -15,7 +15,7 @@ from discord import app_commands
 ALERT_CHANNEL_ID = 1327548733398843413
 ADMIN_ROLE_ID = 1280396795046006836
 ROLE_TEST_ID = 1358771105980088390
-ROLE_DEF_ID = 1280396795046006836  # Rôle Défense
+ROLE_DEF_ID = 1326671483455537172
 ROLE_SIMU_ID = 1328097429525893192  # Rôle attaque simultanée
 
 MAX_DEFENDERS = 4
@@ -211,6 +211,7 @@ class AlertsCog(commands.Cog):
         if data["incomplete"]:
             etat += " (😡 incomplète)"
 
+        # Description selon type d'alerte
         if simu:
             embed.description = "💣 Attaque simultanée sur des percepteurs Wanted"
         else:
@@ -218,17 +219,10 @@ class AlertsCog(commands.Cog):
 
         embed.add_field(name="📊 État", value=etat, inline=False)
 
-        # Explication des emojis
-        embed.add_field(
-            name="\u200b",
-            value=(
-                "*👍 — J’ai défendu*\n"
-                "*🏆 — Victoire*\n"
-                "*❌ — Défaite*\n"
-                "*😡 — Défense incomplète*"
-            ),
-            inline=False,
-        )
+        # -------- LÉGENDE EMOJI --------
+        embed.add_field(name="\u200b", value="\u200b", inline=False)  # espace
+        legend = "`👍 j’ai défendu` | `🏆 victoire` | `❌ défaite`"
+        embed.add_field(name="\u200b", value=legend, inline=False)
 
         return embed
 
