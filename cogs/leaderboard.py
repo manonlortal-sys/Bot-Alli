@@ -1,10 +1,10 @@
-# cogs/leaderboard.py
-
 from __future__ import annotations
 import discord
 from discord.ext import commands
 from typing import Dict
-from cogs.alerts import alerts_data
+from cogs.alerts import alerts_data, DATA_PATH
+import json
+import os
 
 LEADERBOARD_CHANNEL_ID = 1459091766098788445
 TOP_LIMIT = 20
@@ -20,13 +20,7 @@ class Leaderboard(commands.Cog):
     # CALCUL DES STATS
     # -----------------------------
     def compute_stats(self):
-        global_stats = {
-            "attacks": 0,
-            "wins": 0,
-            "losses": 0,
-            "incomplete": 0,
-        }
-
+        global_stats = {"attacks": 0, "wins": 0, "losses": 0, "incomplete": 0}
         players: Dict[int, Dict[str, int]] = {}
 
         for data in alerts_data.values():
@@ -39,9 +33,7 @@ class Leaderboard(commands.Cog):
                 global_stats["incomplete"] += 1
 
             for uid in data["defenders"]:
-                p = players.setdefault(
-                    uid, {"defenses": 0, "wins": 0, "losses": 0, "incomplete": 0}
-                )
+                p = players.setdefault(uid, {"defenses": 0, "wins": 0, "losses": 0, "incomplete": 0})
                 p["defenses"] += 1
                 if data["result"] == "win":
                     p["wins"] += 1
@@ -57,7 +49,6 @@ class Leaderboard(commands.Cog):
     # -----------------------------
     def build_embed(self) -> discord.Embed:
         global_stats, players = self.compute_stats()
-
         embed = discord.Embed(
             title="📊 Leaderboard Défense Percepteurs",
             description="Statistiques mises à jour en temps réel.",
@@ -75,36 +66,23 @@ class Leaderboard(commands.Cog):
             inline=False,
         )
 
-        sorted_players = sorted(
-            players.items(), key=lambda x: x[1]["defenses"], reverse=True
-        )[:TOP_LIMIT]
+        sorted_players = sorted(players.items(), key=lambda x: x[1]["defenses"], reverse=True)[:TOP_LIMIT]
 
         if not sorted_players:
-            embed.add_field(
-                name="🛡️ Défenseurs",
-                value="_Aucune défense enregistrée._",
-                inline=False,
-            )
+            embed.add_field(name="🛡️ Défenseurs", value="_Aucune défense enregistrée._", inline=False)
             return embed
 
         medals = ["🥇", "🥈", "🥉"]
         lines = []
         for idx, (uid, stats) in enumerate(sorted_players, start=1):
             prefix = medals[idx - 1] if idx <= 3 else f"{idx}."
-            lines.append(
-                f"{prefix} <@{uid}> — 🛡️ {stats['defenses']} | 🏆 {stats['wins']} | ❌ {stats['losses']} | 😡 {stats['incomplete']}"
-            )
+            lines.append(f"{prefix} <@{uid}> — 🛡️ {stats['defenses']} | 🏆 {stats['wins']} | ❌ {stats['losses']} | 😡 {stats['incomplete']}")
 
         field_value = "\n".join(lines)
         if len(field_value) > 1024:
             field_value = field_value[:1021] + "…"
 
-        embed.add_field(
-            name=f"🛡️ Défenseurs (Top {TOP_LIMIT})",
-            value=field_value,
-            inline=False,
-        )
-
+        embed.add_field(name=f"🛡️ Défenseurs (Top {TOP_LIMIT})", value=field_value, inline=False)
         embed.set_footer(text="Mis à jour automatiquement • Temps réel")
         return embed
 
@@ -134,25 +112,30 @@ class Leaderboard(commands.Cog):
     # -----------------------------
     @discord.app_commands.command(
         name="reset",
-        description="Réinitialise le leaderboard (admin uniquement)"
+        description="Réinitialise le leaderboard et les alertes (admin uniquement)"
     )
     async def reset(self, interaction: discord.Interaction):
         # Permissions : rôle admin ou ID
         has_admin_role = any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles)
         if interaction.user.id != ADMIN_USER_ID and not has_admin_role:
-            await interaction.response.send_message(
-                "❌ Tu n'as pas la permission.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ Tu n'as pas la permission.", ephemeral=True)
             return
 
+        # Vider les alertes en mémoire
+        alerts_data.clear()
+
+        # Réécrire le JSON vide
+        os.makedirs(os.path.dirname(DATA_PATH), exist_ok=True)
+        with open(DATA_PATH, "w", encoding="utf-8") as f:
+            json.dump({}, f, indent=2)
+
+        # Récupérer le salon leaderboard
         channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
         if not isinstance(channel, discord.TextChannel):
-            await interaction.response.send_message(
-                "❌ Salon leaderboard introuvable.", ephemeral=True
-            )
+            await interaction.response.send_message("❌ Salon leaderboard introuvable.", ephemeral=True)
             return
 
-        # Supprime les messages existants du bot
+        # Supprimer les anciens messages
         async for msg in channel.history(limit=50):
             if msg.author.id == self.bot.user.id and msg.embeds:
                 if msg.embeds[0].title == "📊 Leaderboard Défense Percepteurs":
@@ -161,12 +144,10 @@ class Leaderboard(commands.Cog):
                     except discord.HTTPException:
                         pass
 
-        # Crée un nouveau message vide
+        # Créer un nouveau message vide
         await channel.send(embed=self.build_embed())
 
-        await interaction.response.send_message(
-            "✅ Leaderboard réinitialisé.", ephemeral=True
-        )
+        await interaction.response.send_message("✅ Leaderboard et alertes réinitialisés.", ephemeral=True)
 
     # -----------------------------
     # EVENTS
@@ -187,5 +168,5 @@ class Leaderboard(commands.Cog):
 async def setup(bot: commands.Bot):
     cog = Leaderboard(bot)
     await bot.add_cog(cog)
-    # Synchronise toutes les commandes slash du cog
-    await bot.tree.sync()
+    # Ajouter la commande slash au bot
+    bot.tree.add_command(cog.reset)
