@@ -13,9 +13,10 @@ from discord import app_commands
 # CONFIG
 # =============================
 ALERT_CHANNEL_ID = 1327548733398843413
-ROLE_DEF_ID = 1280396795046006836
-ROLE_SIMU_ID = 1328097429525893192
+ADMIN_ROLE_ID = 1280396795046006836
 ROLE_TEST_ID = 1358771105980088390
+ROLE_DEF_ID = 1280396795046006836  # Rôle Défense
+ROLE_SIMU_ID = 1328097429525893192  # Rôle attaque simultanée
 
 MAX_DEFENDERS = 4
 COOLDOWN = 30
@@ -216,6 +217,19 @@ class AlertsCog(commands.Cog):
             embed.description = "🗡️ Un percepteur Wanted se fait attaquer"
 
         embed.add_field(name="📊 État", value=etat, inline=False)
+
+        # Explication des emojis
+        embed.add_field(
+            name="\u200b",
+            value=(
+                "*👍 — J’ai défendu*\n"
+                "*🏆 — Victoire*\n"
+                "*❌ — Défaite*\n"
+                "*😡 — Défense incomplète*"
+            ),
+            inline=False,
+        )
+
         return embed
 
     async def update_alert_message(self, alert_id: int, simu: bool = False):
@@ -333,7 +347,7 @@ class AlertsCog(commands.Cog):
             await msg.add_reaction(e)
 
     async def send_test_alert(self, interaction):
-        if not any(r.id == ROLE_DEF_ID for r in interaction.user.roles):
+        if not any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles):
             return await interaction.response.send_message("Admin only.", ephemeral=True)
 
         channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
@@ -368,6 +382,7 @@ class AlertsCog(commands.Cog):
             async def callback(i, role_id=role_id, key=key):
                 await self.send_alert(i, key, role_id)
 
+            # Choix de l'emoji
             emoji = "🗡️" if label.lower() == "wanted" else "💣"
 
             btn = discord.ui.Button(
