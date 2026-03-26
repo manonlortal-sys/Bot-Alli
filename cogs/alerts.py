@@ -15,7 +15,7 @@ from discord import app_commands
 ALERT_CHANNEL_ID = 1327548733398843413
 ADMIN_ROLE_ID = 1280396795046006836
 ROLE_TEST_ID = 1358771105980088390
-ROLE_DEF_ID = 1326671483455537172
+ROLE_DEF_ID = 1326671483455537172  # Rôle Def
 ROLE_SIMU_ID = 1328097429525893192  # Rôle attaque simultanée
 
 MAX_DEFENDERS = 4
@@ -40,7 +40,6 @@ def check_cooldown(key: str) -> bool:
         return False
     last_ping[key] = now
     return True
-
 
 # =============================
 # UI
@@ -68,12 +67,10 @@ class DefenderSelect(discord.ui.UserSelect):
             view=None,
         )
 
-
 class DefenderSelectView(discord.ui.View):
     def __init__(self, bot: commands.Bot, alert_id: int):
         super().__init__(timeout=60)
         self.add_item(DefenderSelect(bot, alert_id))
-
 
 class AlertView(discord.ui.View):
     def __init__(self, bot: commands.Bot):
@@ -122,7 +119,6 @@ class AlertView(discord.ui.View):
         )
 
         await interaction.response.defer()
-
 
 # =============================
 # COG
@@ -211,7 +207,6 @@ class AlertsCog(commands.Cog):
         if data["incomplete"]:
             etat += " (😡 incomplète)"
 
-        # Description selon type d'alerte
         if simu:
             embed.description = "💣 Attaque simultanée sur des percepteurs Wanted"
         else:
@@ -219,10 +214,10 @@ class AlertsCog(commands.Cog):
 
         embed.add_field(name="📊 État", value=etat, inline=False)
 
-        # -------- LÉGENDE EMOJI --------
-        embed.add_field(name="\u200b", value="\u200b", inline=False)  # espace
-        legend = "`👍 j’ai défendu` | `🏆 victoire` | `❌ défaite`"
-        embed.add_field(name="\u200b", value=legend, inline=False)
+        # Footers pour légende emoji, en petit
+        embed.set_footer(
+            text="Mis à jour automatiquement • Temps réel\n👍 j’ai défendu | 🏆 victoire | ❌ défaite | 😡 défense incomplète"
+        )
 
         return embed
 
@@ -404,6 +399,6 @@ class AlertsCog(commands.Cog):
 
         await interaction.response.send_message(embed=embed, view=view)
 
-
+# ---------- SETUP ----------
 async def setup(bot: commands.Bot):
     await bot.add_cog(AlertsCog(bot))
