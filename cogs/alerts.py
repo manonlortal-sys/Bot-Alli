@@ -16,7 +16,6 @@ ALERT_CHANNEL_ID = 1327548733398843413
 ADMIN_ROLE_ID = 1280396795046006836
 ROLE_TEST_ID = 1358771105980088390
 ROLE_SIMU_ID = 1328097429525893192  # Rôle attaque simultanée
-LEADERBOARD_CHANNEL_ID = 1459091766098788445
 
 MAX_DEFENDERS = 4
 COOLDOWN = 30
@@ -41,17 +40,12 @@ def check_cooldown(key: str) -> bool:
     last_ping[key] = now
     return True
 
-
 # =============================
 # UI
 # =============================
 class DefenderSelect(discord.ui.UserSelect):
     def __init__(self, bot: commands.Bot, alert_id: int):
-        super().__init__(
-            placeholder="Sélectionne des défenseurs…",
-            min_values=1,
-            max_values=MAX_DEFENDERS,
-        )
+        super().__init__(placeholder="Sélectionne des défenseurs…", min_values=1, max_values=MAX_DEFENDERS)
         self.bot = bot
         self.alert_id = alert_id
 
@@ -63,28 +57,19 @@ class DefenderSelect(discord.ui.UserSelect):
         for user in self.values:
             await alerts_cog.add_defender_to_alert(self.alert_id, user.id)
 
-        await interaction.response.edit_message(
-            content="Défenseurs ajoutés.",
-            view=None,
-        )
-
+        await interaction.response.edit_message(content="Défenseurs ajoutés.", view=None)
 
 class DefenderSelectView(discord.ui.View):
     def __init__(self, bot: commands.Bot, alert_id: int):
         super().__init__(timeout=60)
         self.add_item(DefenderSelect(bot, alert_id))
 
-
 class AlertView(discord.ui.View):
     def __init__(self, bot: commands.Bot):
         super().__init__(timeout=None)
         self.bot = bot
 
-    @discord.ui.button(
-        label="Ajout défenseurs",
-        style=discord.ButtonStyle.success,
-        custom_id="alert_add_defender",
-    )
+    @discord.ui.button(label="Ajout défenseurs", style=discord.ButtonStyle.success, custom_id="alert_add_defender")
     async def defender_button(self, interaction: discord.Interaction, _):
         alert_id = interaction.message.id
         data = alerts_data.get(alert_id)
@@ -92,37 +77,20 @@ class AlertView(discord.ui.View):
             return
 
         if interaction.user.id not in data["defenders"]:
-            return await interaction.response.send_message(
-                "Tu dois avoir 👍 sur l’alerte.",
-                ephemeral=True,
-            )
+            return await interaction.response.send_message("Tu dois avoir 👍 sur l’alerte.", ephemeral=True)
 
         view = DefenderSelectView(self.bot, alert_id)
-        await interaction.response.send_message(
-            "Sélectionne les défenseurs :",
-            view=view,
-            ephemeral=True,
-        )
+        await interaction.response.send_message("Sélectionne les défenseurs :", view=view, ephemeral=True)
 
-    @discord.ui.button(
-        label="Solo",
-        style=discord.ButtonStyle.danger,
-        custom_id="alert_solo",
-    )
+    @discord.ui.button(label="Solo", style=discord.ButtonStyle.danger, custom_id="alert_solo")
     async def solo_button(self, interaction: discord.Interaction, _):
         alert_id = interaction.message.id
         alerts_cog = self.bot.get_cog("AlertsCog")
         if not alerts_cog:
             return
 
-        await alerts_cog.delete_alert(
-            alert_id,
-            interaction.channel,
-            interaction.user,
-        )
-
+        await alerts_cog.delete_alert(alert_id, interaction.channel, interaction.user)
         await interaction.response.defer()
-
 
 # =============================
 # COG
@@ -133,9 +101,6 @@ class AlertsCog(commands.Cog):
         self.alert_view = AlertView(bot)
         bot.add_view(self.alert_view)
         self.load_data()
-        # Ajout des commandes slash
-        bot.tree.add_command(self.pingpanel)
-        bot.tree.add_command(self.reset)
 
     # ---------- PERSISTENCE ----------
     def load_data(self):
@@ -182,35 +147,13 @@ class AlertsCog(commands.Cog):
             else discord.Color.orange()
         )
 
-        embed = discord.Embed(
-            title="⚠️ Percepteur attaqué",
-            color=color
-        )
+        embed = discord.Embed(title="⚠️ Percepteur attaqué", color=color)
+        embed.add_field(name="🔔 Déclenché par", value=f"<@{data['author']}>", inline=False)
 
-        embed.add_field(
-            name="🔔 Déclenché par",
-            value=f"<@{data['author']}>",
-            inline=False,
-        )
+        defenders = ", ".join(f"<@{d}>" for d in data["defenders"]) if data["defenders"] else "Aucun"
+        embed.add_field(name=f"🛡️ Défenseurs ({len(data['defenders'])}/{MAX_DEFENDERS})", value=defenders, inline=False)
 
-        defenders = (
-            ", ".join(f"<@{d}>" for d in data["defenders"])
-            if data["defenders"]
-            else "Aucun"
-        )
-
-        embed.add_field(
-            name=f"🛡️ Défenseurs ({len(data['defenders'])}/{MAX_DEFENDERS})",
-            value=defenders,
-            inline=False,
-        )
-
-        etat = (
-            "🏆 Victoire" if data["result"] == "win"
-            else "❌ Défaite" if data["result"] == "lose"
-            else "⏳ En cours"
-        )
-
+        etat = "🏆 Victoire" if data["result"] == "win" else "❌ Défaite" if data["result"] == "lose" else "⏳ En cours"
         if data["incomplete"]:
             etat += " (😡 incomplète)"
 
@@ -274,12 +217,7 @@ class AlertsCog(commands.Cog):
         alerts_data[alert_id]["incomplete"] = not alerts_data[alert_id]["incomplete"]
         await self.update_alert_message(alert_id)
 
-    async def delete_alert(
-        self,
-        alert_id: int,
-        channel: discord.abc.Messageable,
-        user: discord.User | discord.Member,
-    ):
+    async def delete_alert(self, alert_id: int, channel: discord.abc.Messageable, user: discord.User | discord.Member):
         if alert_id not in alerts_data:
             return
 
@@ -292,10 +230,7 @@ class AlertsCog(commands.Cog):
         except discord.HTTPException:
             pass
 
-        username = user.display_name
-        await channel.send(
-            f"Une alerte a été supprimée par {username} : 1 seul attaquant"
-        )
+        await channel.send(f"Une alerte a été supprimée par {user.display_name} : 1 seul attaquant")
 
         leaderboard = self.bot.get_cog("Leaderboard")
         if leaderboard:
@@ -304,10 +239,7 @@ class AlertsCog(commands.Cog):
     # ---------- ENVOI ALERTES ----------
     async def send_alert(self, interaction, key, roles):
         if not check_cooldown(key):
-            return await interaction.response.send_message(
-                "❌ Une alerte a déjà été envoyée récemment.",
-                ephemeral=True,
-            )
+            return await interaction.response.send_message("❌ Une alerte a déjà été envoyée récemment.", ephemeral=True)
 
         channel = interaction.guild.get_channel(ALERT_CHANNEL_ID)
         await interaction.response.send_message("Alerte envoyée.", ephemeral=True)
@@ -361,26 +293,17 @@ class AlertsCog(commands.Cog):
             await msg.add_reaction(e)
 
     # ---------- COMMANDES ----------
-    @app_commands.command(
-        name="pingpanel",
-        description="Affiche le panneau de ping défense."
-    )
+    @app_commands.command(name="pingpanel", description="Affiche le panneau de ping défense.")
     async def pingpanel(self, interaction: discord.Interaction):
         view = discord.ui.View(timeout=None)
 
         for label, role_id, key in BUTTONS:
+            emoji = "🗡️" if label.lower() == "wanted" else "💣"
+
             async def callback(i, role_id=role_id, key=key):
                 await self.send_alert(i, key, role_id)
 
-            emoji = "🗡️" if label.lower() == "wanted" else "💣"
-
-            btn = discord.ui.Button(
-                label=label,
-                emoji=emoji,
-                style=discord.ButtonStyle.primary
-                if label.lower() == "wanted"
-                else discord.ButtonStyle.danger,
-            )
+            btn = discord.ui.Button(label=label, emoji=emoji, style=discord.ButtonStyle.primary if label.lower() == "wanted" else discord.ButtonStyle.danger)
             btn.callback = callback
             view.add_item(btn)
 
@@ -391,46 +314,9 @@ class AlertsCog(commands.Cog):
         test_btn.callback = test_cb
         view.add_item(test_btn)
 
-        embed = discord.Embed(
-            title="⚔️ Ping défense percepteurs",
-            description="Clique sur le bouton correspondant pour envoyer l’alerte.",
-            color=discord.Color.blurple(),
-        )
-
+        embed = discord.Embed(title="⚔️ Ping défense percepteurs", description="Clique sur le bouton correspondant pour envoyer l’alerte.", color=discord.Color.blurple())
         await interaction.response.send_message(embed=embed, view=view)
 
-    @app_commands.command(
-        name="reset",
-        description="Réinitialise les deux leaderboards (admin uniquement)."
-    )
-    async def reset(self, interaction: discord.Interaction):
-        allowed_ids = {ADMIN_ROLE_ID, 1352575142668013588}
-        if not any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles) and interaction.user.id not in allowed_ids:
-            return await interaction.response.send_message("❌ Tu n'as pas la permission.", ephemeral=True)
-
-        leaderboard = self.bot.get_cog("Leaderboard")
-        triggers = self.bot.get_cog("LeaderboardTriggers")
-
-        for cog in [leaderboard, triggers]:
-            if not cog:
-                continue
-            channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
-            if not isinstance(channel, discord.TextChannel):
-                continue
-
-            async for msg in channel.history(limit=50):
-                if msg.author.id == self.bot.user.id and msg.embeds:
-                    if msg.embeds[0].title in ["📊 Leaderboard Défense Percepteurs", "🚨 Leaderboard Déclencheurs d’Alertes"]:
-                        try:
-                            await msg.delete()
-                        except discord.HTTPException:
-                            pass
-
-            # Nouveau message vide
-            await channel.send(embed=cog.build_embed())
-
-        await interaction.response.send_message("✅ Leaderboards réinitialisés.", ephemeral=True)
-
-
+# ---------- SETUP ----------
 async def setup(bot: commands.Bot):
     await bot.add_cog(AlertsCog(bot))
