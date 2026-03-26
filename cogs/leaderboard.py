@@ -62,60 +62,62 @@ class Leaderboard(commands.Cog):
     # BUILD EMBED
     # -----------------------------
     def build_embed(self) -> discord.Embed:
-        global_stats, players = self.compute_stats()
+    global_stats, players = self.compute_stats()
 
-        embed = discord.Embed(
-            title="📊 Leaderboard Défense Percepteurs",
-            description="Statistiques mises à jour en temps réel.",
-            color=discord.Color.blurple(),
-        )
+    embed = discord.Embed(
+        title="📊 Leaderboard Défense Percepteurs",
+        description="Statistiques mises à jour en temps réel.",
+        color=discord.Color.blurple(),
+    )
 
+    embed.add_field(
+        name="🌍 Global",
+        value=(
+            f"⚔️ Attaques reçues : **{global_stats['attacks']}**\n"
+            f"🏆 Victoires : **{global_stats['wins']}**\n"
+            f"❌ Défaites : **{global_stats['losses']}**\n"
+            f"😡 Défenses incomplètes : **{global_stats['incomplete']}**"
+        ),
+        inline=False,
+    )
+
+    sorted_players = sorted(
+        players.items(),
+        key=lambda x: x[1]["defenses"],
+        reverse=True,
+    )[:TOP_LIMIT]
+
+    if not sorted_players:
         embed.add_field(
-            name="🌍 Global",
-            value=(
-                f"⚔️ Attaques reçues : **{global_stats['attacks']}**\n"
-                f"🏆 Victoires : **{global_stats['wins']}**\n"
-                f"❌ Défaites : **{global_stats['losses']}**\n"
-                f"😡 Défenses incomplètes : **{global_stats['incomplete']}**"
-            ),
+            name="🛡️ Défenseurs",
+            value="_Aucune défense enregistrée._",
             inline=False,
         )
-
-        sorted_players = sorted(
-            players.items(),
-            key=lambda x: x[1]["defenses"],
-            reverse=True,
-        )[:TOP_LIMIT]
-
-        if not sorted_players:
-            embed.add_field(
-                name="🛡️ Défenseurs",
-                value="_Aucune défense enregistrée._",
-                inline=False,
-            )
-            return embed
-
-        medals = ["🥇", "🥈", "🥉"]
-        lines = []
-
-        for idx, (uid, stats) in enumerate(sorted_players, start=1):
-            prefix = medals[idx - 1] if idx <= 3 else f"{idx}."
-            lines.append(
-                f"{prefix} <@{uid}> — "
-                f"🛡️ {stats['defenses']} | "
-                f"🏆 {stats['wins']} | "
-                f"❌ {stats['losses']} | "
-                f"😡 {stats['incomplete']}"
-            )
-
-        embed.add_field(
-            name=f"🛡️ Défenseurs (Top {TOP_LIMIT})",
-            value="\n".join(lines),
-            inline=False,
-        )
-
-        embed.set_footer(text="Mis à jour automatiquement • Temps réel")
         return embed
+
+    medals = ["🥇", "🥈", "🥉"]
+    lines = []
+
+    for idx, (uid, stats) in enumerate(sorted_players, start=1):
+        prefix = medals[idx - 1] if idx <= 3 else f"{idx}."
+        lines.append(
+            f"{prefix} <@{uid}> — 🛡️ {stats['defenses']} | 🏆 {stats['wins']} | ❌ {stats['losses']} | 😡 {stats['incomplete']}"
+        )
+
+    field_value = "\n".join(lines)
+
+    # Tronquer si plus de 1024 caractères pour Discord
+    if len(field_value) > 1024:
+        field_value = field_value[:1021] + "…"
+
+    embed.add_field(
+        name=f"🛡️ Défenseurs (Top {TOP_LIMIT})",
+        value=field_value,
+        inline=False,
+    )
+
+    embed.set_footer(text="Mis à jour automatiquement • Temps réel")
+    return embed
 
     # -----------------------------
     # MESSAGE UNIQUE
