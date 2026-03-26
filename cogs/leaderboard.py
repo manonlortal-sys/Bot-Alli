@@ -1,16 +1,15 @@
 # cogs/leaderboard.py
 
 from __future__ import annotations
-
 import discord
 from discord.ext import commands
 from typing import Dict
-
 from cogs.alerts import alerts_data
 
 LEADERBOARD_CHANNEL_ID = 1459091766098788445
 TOP_LIMIT = 20
-ADMIN_ROLE_ID = 1280396795046006836  # rôle admin pour /reset
+ADMIN_USER_ID = 1352575142668013588
+ADMIN_ROLE_ID = 1280396795046006836
 
 
 class Leaderboard(commands.Cog):
@@ -21,7 +20,13 @@ class Leaderboard(commands.Cog):
     # CALCUL DES STATS
     # -----------------------------
     def compute_stats(self):
-        global_stats = {"attacks": 0, "wins": 0, "losses": 0, "incomplete": 0}
+        global_stats = {
+            "attacks": 0,
+            "wins": 0,
+            "losses": 0,
+            "incomplete": 0,
+        }
+
         players: Dict[int, Dict[str, int]] = {}
 
         for data in alerts_data.values():
@@ -125,6 +130,46 @@ class Leaderboard(commands.Cog):
         await msg.edit(embed=self.build_embed())
 
     # -----------------------------
+    # COMMANDES / SLASH
+    # -----------------------------
+    @discord.app_commands.command(
+        name="reset",
+        description="Réinitialise le leaderboard (admin uniquement)"
+    )
+    async def reset(self, interaction: discord.Interaction):
+        # Permissions : rôle admin ou ID
+        allowed_ids = {ADMIN_USER_ID}
+        has_admin_role = any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles)
+        if interaction.user.id not in allowed_ids and not has_admin_role:
+            await interaction.response.send_message(
+                "❌ Tu n'as pas la permission.", ephemeral=True
+            )
+            return
+
+        channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
+        if not isinstance(channel, discord.TextChannel):
+            await interaction.response.send_message(
+                "❌ Salon leaderboard introuvable.", ephemeral=True
+            )
+            return
+
+        # Supprime les messages existants du bot
+        async for msg in channel.history(limit=50):
+            if msg.author.id == self.bot.user.id and msg.embeds:
+                if msg.embeds[0].title == "📊 Leaderboard Défense Percepteurs":
+                    try:
+                        await msg.delete()
+                    except discord.HTTPException:
+                        pass
+
+        # Crée un nouveau message vide
+        await channel.send(embed=self.build_embed())
+
+        await interaction.response.send_message(
+            "✅ Leaderboard réinitialisé.", ephemeral=True
+        )
+
+    # -----------------------------
     # EVENTS
     # -----------------------------
     @commands.Cog.listener()
@@ -139,35 +184,9 @@ class Leaderboard(commands.Cog):
     async def on_raw_reaction_remove(self, payload):
         await self.refresh()
 
-    # -----------------------------
-    # COMMANDE /RESET
-    # -----------------------------
-    @commands.hybrid_command(
-        name="reset",
-        description="Réinitialise le leaderboard (admin uniquement)"
-    )
-    async def reset(self, ctx: commands.Context):
-        user = ctx.author
-        allowed_ids = {ADMIN_ROLE_ID, 1352575142668013588}
-        if not any(r.id == ADMIN_ROLE_ID for r in getattr(user, "roles", [])) and user.id not in allowed_ids:
-            return await ctx.reply("❌ Tu n'as pas la permission.", ephemeral=True)
-
-        channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
-        if not isinstance(channel, discord.TextChannel):
-            return await ctx.reply("❌ Impossible de trouver le channel.", ephemeral=True)
-
-        async for msg in channel.history(limit=50):
-            if msg.author.id == self.bot.user.id and msg.embeds:
-                if msg.embeds[0].title == "📊 Leaderboard Défense Percepteurs":
-                    try:
-                        await msg.delete()
-                    except discord.HTTPException:
-                        pass
-
-        # Re-crée un message vide
-        await channel.send(embed=self.build_embed())
-        await ctx.reply("✅ Leaderboard réinitialisé.", ephemeral=True)
-
 
 async def setup(bot: commands.Bot):
-    await bot.add_cog(Leaderboard(bot))
+    cog = Leaderboard(bot)
+    await bot.add_cog(cog)
+    # Ajoute la commande slash
+    bot.tree.add_command(cog.reset)
