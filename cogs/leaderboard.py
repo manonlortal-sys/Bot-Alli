@@ -138,9 +138,8 @@ class Leaderboard(commands.Cog):
     )
     async def reset(self, interaction: discord.Interaction):
         # Permissions : rôle admin ou ID
-        allowed_ids = {ADMIN_USER_ID}
         has_admin_role = any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles)
-        if interaction.user.id not in allowed_ids and not has_admin_role:
+        if interaction.user.id != ADMIN_USER_ID and not has_admin_role:
             await interaction.response.send_message(
                 "❌ Tu n'as pas la permission.", ephemeral=True
             )
@@ -188,5 +187,5 @@ class Leaderboard(commands.Cog):
 async def setup(bot: commands.Bot):
     cog = Leaderboard(bot)
     await bot.add_cog(cog)
-    # Ajoute la commande slash
-    bot.tree.add_command(cog.reset)
+    # Synchronise toutes les commandes slash du cog
+    await bot.tree.sync()
