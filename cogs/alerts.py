@@ -20,6 +20,7 @@ ROLE_SIMU_ID = 1328097429525893192  # Rôle attaque simultanée
 MAX_DEFENDERS = 4
 COOLDOWN = 30
 DATA_PATH = "/var/data/alerts_data.json"
+LEADERBOARD_CHANNEL_ID = 1459091766098788445
 
 last_ping: dict[str, float] = {}
 
@@ -119,7 +120,6 @@ class AlertView(discord.ui.View):
             interaction.channel,
             interaction.user,
         )
-
         await interaction.response.defer()
 
 
@@ -132,6 +132,10 @@ class AlertsCog(commands.Cog):
         self.alert_view = AlertView(bot)
         bot.add_view(self.alert_view)
         self.load_data()
+
+        # Enregistrement des slash commands
+        bot.tree.add_command(self.pingpanel)
+        bot.tree.add_command(self.reset)
 
     # ---------- PERSISTENCE ----------
     def load_data(self):
@@ -356,87 +360,72 @@ class AlertsCog(commands.Cog):
         for e in ("👍", "🏆", "❌", "😡"):
             await msg.add_reaction(e)
 
-    # ---------- COMMANDES ----------
+    # ---------- COMMANDES SLASH ----------
     @app_commands.command(
-    name="pingpanel",
-    description="Affiche le panneau de ping défense."
-)
-async def pingpanel(self, interaction: discord.Interaction):
-    view = discord.ui.View(timeout=None)
-
-    for label, role_id, key in BUTTONS:
-        async def callback(i, role_id=role_id, key=key):
-            # Ping Wanted ou Attaque Simu
-            if label.lower() == "wanted":
-                await self.send_alert(i, key, role_id)
-            else:  # Attaque simultanée
-                await self.send_alert(i, key, role_id)  # On modifiera send_alert pour ping 2 rôles si key = "Attaque simultanée"
-
-        # Choix de l'emoji
-        emoji = "🗡️" if label.lower() == "wanted" else "💣"
-
-        btn = discord.ui.Button(
-            label=label,
-            emoji=emoji,
-            style=discord.ButtonStyle.primary
-            if label.lower() == "wanted"
-            else discord.ButtonStyle.danger,
-        )
-        btn.callback = callback
-        view.add_item(btn)
-
-    # Bouton TEST
-    test_btn = discord.ui.Button(label="TEST", style=discord.ButtonStyle.secondary)
-    async def test_cb(i):
-        await self.send_test_alert(i)
-    test_btn.callback = test_cb
-    view.add_item(test_btn)
-
-    embed = discord.Embed(
-        title="⚔️ Ping défense percepteurs",
-        description="Clique sur le bouton correspondant pour envoyer l’alerte.",
-        color=discord.Color.blurple(),
+        name="pingpanel",
+        description="Affiche le panneau de ping défense."
     )
+    async def pingpanel(self, interaction: discord.Interaction):
+        view = discord.ui.View(timeout=None)
 
-    await interaction.response.send_message(embed=embed, view=view)
+        for label, role_id, key in BUTTONS:
+            async def callback(i, role_id=role_id, key=key):
+                await self.send_alert(i, key, role_id)
 
-    # -----------------------------
-# COMMANDE /RESET
-# -----------------------------
-@app_commands.command(
-    name="reset",
-    description="Réinitialise les deux leaderboards (admin uniquement)."
-)
-async def reset(self, interaction: discord.Interaction):
-    # Vérification des permissions : rôle admin ou ton ID
-    allowed_ids = {ADMIN_ROLE_ID, 1352575142668013588}
-    if not any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles) and interaction.user.id not in allowed_ids:
-        return await interaction.response.send_message("❌ Tu n'as pas la permission.", ephemeral=True)
+            emoji = "🗡️" if label.lower() == "wanted" else "💣"
+            btn = discord.ui.Button(
+                label=label,
+                emoji=emoji,
+                style=discord.ButtonStyle.primary if label.lower() == "wanted" else discord.ButtonStyle.danger,
+            )
+            btn.callback = callback
+            view.add_item(btn)
 
-    # On récupère les cogs leaderboard
-    leaderboard = self.bot.get_cog("Leaderboard")
-    triggers = self.bot.get_cog("LeaderboardTriggers")
+        # Bouton TEST
+        test_btn = discord.ui.Button(label="TEST", style=discord.ButtonStyle.secondary)
+        async def test_cb(i):
+            await self.send_test_alert(i)
+        test_btn.callback = test_cb
+        view.add_item(test_btn)
 
-    # Supprime les messages existants
-    for cog in [leaderboard, triggers]:
-        if not cog:
-            continue
-        channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
-        if not isinstance(channel, discord.TextChannel):
-            continue
+        embed = discord.Embed(
+            title="⚔️ Ping défense percepteurs",
+            description="Clique sur le bouton correspondant pour envoyer l’alerte.",
+            color=discord.Color.blurple(),
+        )
 
-        async for msg in channel.history(limit=50):
-            if msg.author.id == self.bot.user.id and msg.embeds:
-                if msg.embeds[0].title in ["📊 Leaderboard Défense Percepteurs", "🚨 Leaderboard Déclencheurs d’Alertes"]:
-                    try:
-                        await msg.delete()
-                    except discord.HTTPException:
-                        pass
+        await interaction.response.send_message(embed=embed, view=view)
 
-        # Crée un nouveau message vide
-        await channel.send(embed=cog.build_embed())
+    @app_commands.command(
+        name="reset",
+        description="Réinitialise les deux leaderboards (admin uniquement)."
+    )
+    async def reset(self, interaction: discord.Interaction):
+        allowed_ids = {ADMIN_ROLE_ID, 1352575142668013588}
+        if not any(r.id == ADMIN_ROLE_ID for r in interaction.user.roles) and interaction.user.id not in allowed_ids:
+            return await interaction.response.send_message("❌ Tu n'as pas la permission.", ephemeral=True)
 
-    await interaction.response.send_message("✅ Leaderboards réinitialisés.", ephemeral=True)
+        leaderboard = self.bot.get_cog("Leaderboard")
+        triggers = self.bot.get_cog("LeaderboardTriggers")
+
+        for cog in [leaderboard, triggers]:
+            if not cog:
+                continue
+            channel = self.bot.get_channel(LEADERBOARD_CHANNEL_ID)
+            if not isinstance(channel, discord.TextChannel):
+                continue
+
+            async for msg in channel.history(limit=50):
+                if msg.author.id == self.bot.user.id and msg.embeds:
+                    if msg.embeds[0].title in ["📊 Leaderboard Défense Percepteurs", "🚨 Leaderboard Déclencheurs d’Alertes"]:
+                        try:
+                            await msg.delete()
+                        except discord.HTTPException:
+                            pass
+
+            await channel.send(embed=cog.build_embed())
+
+        await interaction.response.send_message("✅ Leaderboards réinitialisés.", ephemeral=True)
 
 
 async def setup(bot: commands.Bot):
