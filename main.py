@@ -5,7 +5,7 @@ from flask import Flask
 from threading import Thread
 
 # =======================
-# CONFIG
+# TOKEN
 # =======================
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -20,7 +20,7 @@ intents = discord.Intents.all()
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # =======================
-# FLASK (keep alive)
+# FLASK KEEP ALIVE
 # =======================
 app = Flask(__name__)
 
@@ -33,7 +33,7 @@ def run_flask():
     app.run(host="0.0.0.0", port=port)
 
 # =======================
-# COG LOADING
+# COG LOADING (SAFE)
 # =======================
 @bot.event
 async def setup_hook():
@@ -48,19 +48,18 @@ async def setup_hook():
     for ext in extensions:
         try:
             await bot.load_extension(ext)
-            print(f"✔ {ext} chargé")
+            print(f"✔ {ext}")
         except Exception as e:
-            print(f"❌ Erreur {ext} : {e}")
+            print(f"❌ {ext} -> {e}")
 
     # =======================
-    # SYNC SLASH COMMANDS
+    # SLASH SYNC (SAFE GLOBAL)
     # =======================
     try:
         synced = await bot.tree.sync()
-        print(f"🔁 Slash commands sync global: {len(synced)}")
+        print(f"🔁 Slash commands sync: {len(synced)}")
     except Exception as e:
-        print("❌ Sync error:", e)
-
+        print(f"❌ Sync error: {e}")
 
 # =======================
 # READY
@@ -68,7 +67,6 @@ async def setup_hook():
 @bot.event
 async def on_ready():
     print(f"✅ Connecté en tant que {bot.user}")
-
 
 # =======================
 # START
