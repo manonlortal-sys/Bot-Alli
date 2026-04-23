@@ -13,7 +13,7 @@ GUILDS_CONFIG = {
     # =============================
     # SERVEUR 1
     # =============================
-    111111111111111111: {  # ⚠️ METS ICI LE VRAI ID SERVEUR 1
+    1014256819704709120: {  # ⚠️ METS ICI LE VRAI ID SERVEUR 1
         "ALERT_CHANNEL_ID": 1488527268287610964,
         "PANEL_CHANNEL_ID": None,
 
