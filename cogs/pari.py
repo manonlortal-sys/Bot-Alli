@@ -2,16 +2,10 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-# =============================
-# CONFIG SERVEUR UNIQUE
-# =============================
-GUILD_ID = 1480943110929518605
 PARIS_CHANNEL_ID = 1480960334729842788
 ADMIN_ROLE_NAME = "ADMIN"
 
-# =============================
-# UTILS
-# =============================
+
 def format_kamas(amount):
     if amount >= 1_000_000_000:
         return f"{round(amount / 1_000_000_000, 2)}B"
@@ -31,51 +25,26 @@ def parse_mise(mise_str):
     return float(s)
 
 
-# =============================
-# COG
-# =============================
 class PariCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(
-        name="pari",
-        description="Créer un pari sportif",
-        guild=discord.Object(id=GUILD_ID)  # ✅ uniquement ce serveur
-    )
-    async def pari(
-        self,
-        interaction: discord.Interaction,
-        joueur: discord.Member,
-        mise: str,
-        cote_winamax: float
-    ):
+    @app_commands.command(name="pari", description="Créer un pari sportif")
+    async def pari(self, interaction: discord.Interaction, joueur: discord.Member, mise: str, cote_winamax: float):
 
-        # ===== PERMISSION ADMIN =====
+        # 🔒 même logique que tes autres cogs (pas de guild filter)
         if ADMIN_ROLE_NAME not in [r.name for r in interaction.user.roles]:
-            return await interaction.response.send_message(
-                "❌ Tu n’es pas autorisé.",
-                ephemeral=True
-            )
+            return await interaction.response.send_message("❌ Tu n’es pas autorisé.", ephemeral=True)
 
-        # ===== PARSE MISE =====
         try:
             mise_val = parse_mise(mise)
         except:
-            return await interaction.response.send_message(
-                "❌ Mise invalide.",
-                ephemeral=True
-            )
+            return await interaction.response.send_message("❌ Mise invalide.", ephemeral=True)
 
-        # ===== CALCULS =====
         cote_kamazone = round(cote_winamax * 0.8, 2)
         gain = round(mise_val * cote_kamazone, 2)
 
-        # ===== EMBED =====
-        embed = discord.Embed(
-            title="🎰 Pari Sportif",
-            color=0xFFD700
-        )
+        embed = discord.Embed(title="🎰 Pari Sportif", color=0xFFD700)
 
         embed.add_field(
             name="\u200b",
@@ -89,7 +58,6 @@ class PariCog(commands.Cog):
             inline=False
         )
 
-        # ===== SEND =====
         await interaction.response.send_message(embed=embed)
 
         channel = self.bot.get_channel(PARIS_CHANNEL_ID)
@@ -98,8 +66,5 @@ class PariCog(commands.Cog):
             await channel.send(f"Bonne chance {joueur.mention} 🍀")
 
 
-# =============================
-# SETUP
-# =============================
 async def setup(bot):
     await bot.add_cog(PariCog(bot))
