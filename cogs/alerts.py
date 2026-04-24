@@ -13,7 +13,7 @@ GUILDS_CONFIG = {
     # =============================
     # SERVEUR 1
     # =============================
-    1139550147190214727: {  # ⚠️ METS ICI LE VRAI ID SERVEUR 1
+    1139550147190214727: {
         "ALERT_CHANNEL_ID": 1488527268287610964,
         "PANEL_CHANNEL_ID": None,
 
@@ -22,6 +22,7 @@ GUILDS_CONFIG = {
             ("Wanted 2", "🗡️", discord.ButtonStyle.primary, "ROLE_WANTED_2"),
             ("A-team", "🗡️", discord.ButtonStyle.primary, "ROLE_ATEAM"),
             ("MOC", "🗡️", discord.ButtonStyle.primary, "ROLE_MOC"),
+            ("La peste", "⚔️", discord.ButtonStyle.primary, "ROLE_PESTE"),  # ✅ AJOUT
             ("Rush", "🚨", discord.ButtonStyle.danger, "RUSH"),
             ("Test", "⚠️", discord.ButtonStyle.secondary, "ROLE_TEST"),
         ],
@@ -32,6 +33,7 @@ GUILDS_CONFIG = {
             "ROLE_ATEAM": 1437841408856948776,
             "ROLE_MOC": 1421927953188524144,
             "ROLE_TEST": 1421867268421320844,
+            "ROLE_PESTE": 1421927858967810110,  # ✅ AJOUT
         }
     },
 
@@ -265,7 +267,7 @@ class AlertsCog(commands.Cog):
         channel = interaction.guild.get_channel(config["ALERT_CHANNEL_ID"])
 
         await interaction.response.send_message("Test envoyé", ephemeral=True)
-        await channel.send(f"<@&{config['ROLE_TEST']}>")
+        await channel.send(f"<@&{config['ROLES']['ROLE_TEST']}>")
 
         data = {
             "author": interaction.user.id,
@@ -288,7 +290,6 @@ class AlertsCog(commands.Cog):
         if not config:
             return await interaction.response.send_message("Serveur non configuré.", ephemeral=True)
 
-        # 🔒 restriction channel si défini
         if config["PANEL_CHANNEL_ID"] and interaction.channel.id != config["PANEL_CHANNEL_ID"]:
             return await interaction.response.send_message("Commande interdite ici.", ephemeral=True)
 
