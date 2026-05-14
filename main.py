@@ -43,6 +43,7 @@ async def setup_hook():
         "cogs.alerts",
         "cogs.reactions",
         "cogs.pari",
+        "cogs.pvp",
     ]
 
     for ext in extensions:
