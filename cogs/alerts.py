@@ -23,7 +23,7 @@ GUILDS_CONFIG = {
             ("A-team", "🗡️", discord.ButtonStyle.primary, "ROLE_ATEAM"),
             ("MOC", "🗡️", discord.ButtonStyle.primary, "ROLE_MOC"),
             ("La peste", "🗡️", discord.ButtonStyle.primary, "ROLE_PESTE"),
-            ("DRAGS", "🗡️", discord.ButtonStyle.primary, "ROLE_D R A G S"),# ✅ AJOUT
+            ("DRAGS", "🗡️", discord.ButtonStyle.primary, "ROLE_DRAGS"),# ✅ AJOUT
             ("Rush", "🚨", discord.ButtonStyle.danger, "RUSH"),
             ("Test", "⚠️", discord.ButtonStyle.secondary, "ROLE_TEST"),
         ],
