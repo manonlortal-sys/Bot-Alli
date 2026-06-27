@@ -26,6 +26,7 @@ GUILDS_CONFIG = {
             ("DRAGS", "🗡️", discord.ButtonStyle.primary, "ROLE_DRAGS"),# ✅ AJOUT
             ("Rush", "🚨", discord.ButtonStyle.danger, "RUSH"),
             ("Test", "⚠️", discord.ButtonStyle.secondary, "ROLE_TEST"),
+            ("A-team 2", "🗡️", discord.ButtonStyle.primary, "ROLE_ATEAM_2"),
         ],
 
         "ROLES": {
@@ -36,6 +37,7 @@ GUILDS_CONFIG = {
             "ROLE_TEST": 1421867268421320844,
             "ROLE_PESTE": 1421927858967810110,
             "ROLE_DRAGS": 1421859079755927682,# ✅ AJOUT
+            "ROLE_ATEAM_2": 1519049377325387878,
         }
     },
 
