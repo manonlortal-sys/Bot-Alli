@@ -21,7 +21,7 @@ GUILDS_CONFIG = {
             ("Wanted 1", "🗡️", discord.ButtonStyle.primary, "ROLE_WANTED_1"),
             ("Wanted 2", "🗡️", discord.ButtonStyle.primary, "ROLE_WANTED_2"),
             ("A-team", "🗡️", discord.ButtonStyle.primary, "ROLE_ATEAM"),
-            ("MOC", "🗡️", discord.ButtonStyle.primary, "ROLE_MOC"),
+            ("COD", "🗡️", discord.ButtonStyle.primary, "ROLE_CRIT_OR_DEAD"),
             ("La peste", "🗡️", discord.ButtonStyle.primary, "ROLE_PESTE"),
             ("DRAGS", "🗡️", discord.ButtonStyle.primary, "ROLE_DRAGS"),# ✅ AJOUT
             ("Rush", "🚨", discord.ButtonStyle.danger, "RUSH"),
@@ -32,7 +32,7 @@ GUILDS_CONFIG = {
             "ROLE_WANTED_1": 1419320456263237663,
             "ROLE_WANTED_2": 1421860260377006295,
             "ROLE_ATEAM": 1437841408856948776,
-            "ROLE_MOC": 1421927953188524144,
+            "ROLE_CRIT_OR_DEAD": 1519049947809321092,
             "ROLE_TEST": 1421867268421320844,
             "ROLE_PESTE": 1421927858967810110,
             "ROLE_DRAGS": 1421859079755927682,# ✅ AJOUT
