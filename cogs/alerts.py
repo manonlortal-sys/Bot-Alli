@@ -67,10 +67,51 @@ def get_config(guild_id):
 
 def check_cd(key):
     now = time.time()
+
     if key in last_ping and now - last_ping[key] < COOLDOWN:
         return False
+
     last_ping[key] = now
     return True
+
+
+# =============================
+# MODAL GUILDE ATTAQUANTE
+# =============================
+class AttackerModal(discord.ui.Modal, title="Guilde attaquante"):
+
+    guild_name = discord.ui.TextInput(
+        label="Nom de la guilde",
+        placeholder="Ex : Wanted",
+        required=True,
+        max_length=100
+    )
+
+    def __init__(self, bot, alert_id):
+        super().__init__()
+        self.bot = bot
+        self.alert_id = alert_id
+
+    async def on_submit(self, interaction: discord.Interaction):
+        data = alerts_data.get(self.alert_id)
+
+        if not data:
+            return await interaction.response.send_message(
+                "Cette alerte n'existe plus.",
+                ephemeral=True
+            )
+
+        data["attacker_guild"] = self.guild_name.value.strip()
+
+        cog = self.bot.get_cog("AlertsCog")
+
+        if cog:
+            await cog.update_msg(self.alert_id)
+
+        await interaction.response.send_message(
+            f"Guilde attaquante enregistrée : **{self.guild_name.value.strip()}**",
+            ephemeral=True
+        )
 
 
 # =============================
@@ -81,6 +122,33 @@ class AlertView(discord.ui.View):
         super().__init__(timeout=None)
         self.bot = bot
 
+    # =============================
+    # BOUTON ATTAQUANT
+    # =============================
+    @discord.ui.button(
+        label="Attaquant",
+        style=discord.ButtonStyle.primary,
+        custom_id="alert_attacker"
+    )
+    async def attacker_button(self, interaction: discord.Interaction, _):
+        alert_id = interaction.message.id
+
+        if alert_id not in alerts_data:
+            return await interaction.response.send_message(
+                "Cette alerte n'existe plus.",
+                ephemeral=True
+            )
+
+        await interaction.response.send_modal(
+            AttackerModal(
+                self.bot,
+                alert_id
+            )
+        )
+
+    # =============================
+    # BOUTON SOLO
+    # =============================
     @discord.ui.button(
         label="Solo",
         style=discord.ButtonStyle.danger,
@@ -120,11 +188,15 @@ class AlertsCog(commands.Cog):
         self.view = AlertView(bot)
         bot.add_view(self.view)
 
+    # =============================
+    # CONSTRUCTION EMBED
+    # =============================
     def build_embed(self, data):
         color = discord.Color.blurple()
 
         if data["result"] == "win":
             color = discord.Color.green()
+
         elif data["result"] == "lose":
             color = discord.Color.red()
 
@@ -132,6 +204,7 @@ class AlertsCog(commands.Cog):
 
         if data["result"] == "win":
             state = "🏆 Victoire"
+
         elif data["result"] == "lose":
             state = "❌ Défaite"
 
@@ -147,6 +220,13 @@ class AlertsCog(commands.Cog):
             inline=False
         )
 
+        if data.get("attacker_guild"):
+            embed.add_field(
+                name="⚔️ Guilde attaquante",
+                value=data["attacker_guild"],
+                inline=False
+            )
+
         embed.add_field(
             name="📊 État de l’attaque",
             value=state,
@@ -159,6 +239,9 @@ class AlertsCog(commands.Cog):
 
         return embed
 
+    # =============================
+    # UPDATE EMBED
+    # =============================
     async def update_msg(self, message_id):
         data = alerts_data.get(message_id)
 
@@ -222,6 +305,7 @@ class AlertsCog(commands.Cog):
         data = {
             "author": interaction.user.id,
             "result": None,
+            "attacker_guild": None,
             "channel_id": channel.id
         }
 
@@ -266,6 +350,7 @@ class AlertsCog(commands.Cog):
         data = {
             "author": interaction.user.id,
             "result": None,
+            "attacker_guild": None,
             "channel_id": channel.id
         }
 
@@ -301,6 +386,7 @@ class AlertsCog(commands.Cog):
         data = {
             "author": interaction.user.id,
             "result": None,
+            "attacker_guild": None,
             "channel_id": channel.id
         }
 
@@ -359,6 +445,7 @@ class AlertsCog(commands.Cog):
 
                 else:
                     role_id = config["ROLES"][action]
+
                     await self.send_alert(
                         i,
                         role_id
