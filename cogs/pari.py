@@ -5,11 +5,6 @@ from discord import app_commands
 ADMIN_ROLE_NAME = "ADMIN"
 DEV_PS_ROLE_ID = 1542570443054260405
 
-PARIS_CHANNELS = {
-    1480943110929518605: 1480960334729842788,  # Serveur 1
-    1029095704129454211: 1510044180796407979,  # Serveur 2
-}
-
 
 def format_kamas(amount):
     if amount >= 1_000_000_000:
@@ -43,7 +38,7 @@ class PariCog(commands.Cog):
         cote_winamax: float
     ):
 
-        # Autorisation : ADMIN ou DEV PS
+        # Autorisation
         is_admin = ADMIN_ROLE_NAME in [r.name for r in interaction.user.roles]
         is_dev_ps = DEV_PS_ROLE_ID in [r.id for r in interaction.user.roles]
 
@@ -81,22 +76,26 @@ class PariCog(commands.Cog):
             inline=False
         )
 
-        # Comportement original conservé
+        # Exactement comme dans ton code d'origine
         await interaction.response.send_message(embed=embed)
 
-        # Seule différence : salon choisi selon le serveur
-        paris_channel_id = PARIS_CHANNELS.get(interaction.guild.id)
+        # SEULE NOUVELLE LOGIQUE :
+        # choisir le salon selon le serveur
+        if interaction.guild.id == 1480943110929518605:
+            paris_channel_id = 1480960334729842788
 
-        if paris_channel_id is None:
+        elif interaction.guild.id == 1029095704129454211:
+            paris_channel_id = 1510044180796407979
+
+        else:
             return
 
+        # Exactement comme dans ton code d'origine
         channel = self.bot.get_channel(paris_channel_id)
 
         if channel:
             await channel.send(embed=embed)
-            await channel.send(
-                f"Bonne chance {joueur.mention} 🍀"
-            )
+            await channel.send(f"Bonne chance {joueur.mention} 🍀")
 
 
 async def setup(bot):
