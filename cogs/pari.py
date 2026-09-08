@@ -2,8 +2,15 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-ADMIN_ROLE_NAME = "ADMIN"
+PARIS_CHANNEL_ID_SERVEUR_1 = 1480960334729842788
+PARIS_CHANNEL_ID_SERVEUR_2 = 1510044180796407979
+
+SERVEUR_1_ID = 1480943110929518605
+SERVEUR_2_ID = 1029095704129454211
+
 DEV_PS_ROLE_ID = 1542570443054260405
+
+ADMIN_ROLE_NAME = "ADMIN"
 
 
 def format_kamas(amount):
@@ -38,11 +45,14 @@ class PariCog(commands.Cog):
         cote_winamax: float
     ):
 
-        # Autorisation
-        is_admin = ADMIN_ROLE_NAME in [r.name for r in interaction.user.roles]
-        is_dev_ps = DEV_PS_ROLE_ID in [r.id for r in interaction.user.roles]
+        # Autorisation d'origine + DEV PS
+        roles_names = [r.name for r in interaction.user.roles]
+        roles_ids = [r.id for r in interaction.user.roles]
 
-        if not (is_admin or is_dev_ps):
+        if (
+            ADMIN_ROLE_NAME not in roles_names
+            and DEV_PS_ROLE_ID not in roles_ids
+        ):
             return await interaction.response.send_message(
                 "❌ Tu n’es pas autorisé.",
                 ephemeral=True
@@ -76,23 +86,20 @@ class PariCog(commands.Cog):
             inline=False
         )
 
-        # Exactement comme dans ton code d'origine
+        # IDENTIQUE À TON CODE ORIGINAL
         await interaction.response.send_message(embed=embed)
 
-        # SEULE NOUVELLE LOGIQUE :
-        # choisir le salon selon le serveur
-        if interaction.guild.id == 1480943110929518605:
-            paris_channel_id = 1480960334729842788
+        # Seul ajout : choix de l'ID selon le serveur
+        if interaction.guild.id == SERVEUR_1_ID:
+            channel = self.bot.get_channel(PARIS_CHANNEL_ID_SERVEUR_1)
 
-        elif interaction.guild.id == 1029095704129454211:
-            paris_channel_id = 1510044180796407979
+        elif interaction.guild.id == SERVEUR_2_ID:
+            channel = self.bot.get_channel(PARIS_CHANNEL_ID_SERVEUR_2)
 
         else:
-            return
+            channel = None
 
-        # Exactement comme dans ton code d'origine
-        channel = self.bot.get_channel(paris_channel_id)
-
+        # IDENTIQUE À TON CODE ORIGINAL
         if channel:
             await channel.send(embed=embed)
             await channel.send(f"Bonne chance {joueur.mention} 🍀")
