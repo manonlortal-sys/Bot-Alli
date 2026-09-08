@@ -21,6 +21,7 @@ GUILDS_CONFIG = {
             ("Wanted 1", "🗡️", discord.ButtonStyle.primary, "ROLE_WANTED_1"),
             ("Wanted 2", "🗡️", discord.ButtonStyle.primary, "ROLE_WANTED_2"),
             ("La peste", "🗡️", discord.ButtonStyle.primary, "ROLE_PESTE"),
+            ("Insolence", "🗡️", discord.ButtonStyle.primary, "ROLE_INSOLENCE"),
             ("Lost Memory", "🗡️", discord.ButtonStyle.primary, "ROLE_LOST_MEMORY"),
             ("Rush", "🚨", discord.ButtonStyle.danger, "RUSH"),
             ("Test", "⚠️", discord.ButtonStyle.secondary, "ROLE_TEST"),
@@ -32,6 +33,7 @@ GUILDS_CONFIG = {
             "ROLE_TEST": 1421867268421320844,
             "ROLE_PESTE": 1421927858967810110,
             "ROLE_LOST_MEMORY": 1519049947809321092,
+            "ROLE_INSOLENCE": 1519049377325387878,
         }
     },
 
