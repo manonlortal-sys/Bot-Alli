@@ -2,15 +2,18 @@ import discord
 from discord.ext import commands
 from discord import app_commands
 
-PARIS_CHANNEL_ID_SERVEUR_1 = 1480960334729842788
-PARIS_CHANNEL_ID_SERVEUR_2 = 1510044180796407979
-
+# Serveurs
 SERVEUR_1_ID = 1480943110929518605
 SERVEUR_2_ID = 1029095704129454211
 
-DEV_PS_ROLE_ID = 1542570443054260405
+# Salons paris
+PARIS_CHANNEL_ID_SERVEUR_1 = 1480960334729842788
+PARIS_CHANNEL_ID_SERVEUR_2 = 1510044180796407979
 
+# Rôles autorisés
 ADMIN_ROLE_NAME = "ADMIN"
+BDMIN_ROLE_ID = 1498777912718135457
+DEV_PS_ROLE_ID = 1542570443054260405
 
 
 def format_kamas(amount):
@@ -25,10 +28,13 @@ def format_kamas(amount):
 
 def parse_mise(mise_str):
     s = mise_str.replace(" ", "").lower()
+
     if s.endswith("m"):
         return float(s[:-1]) * 1_000_000
+
     if s.endswith("k"):
         return float(s[:-1]) * 1_000
+
     return float(s)
 
 
@@ -36,7 +42,10 @@ class PariCog(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @app_commands.command(name="pari", description="Créer un pari sportif")
+    @app_commands.command(
+        name="pari",
+        description="Créer un pari sportif"
+    )
     async def pari(
         self,
         interaction: discord.Interaction,
@@ -45,14 +54,25 @@ class PariCog(commands.Cog):
         cote_winamax: float
     ):
 
-        # Autorisation d'origine + DEV PS
         roles_names = [r.name for r in interaction.user.roles]
         roles_ids = [r.id for r in interaction.user.roles]
 
-        if (
-            ADMIN_ROLE_NAME not in roles_names
-            and DEV_PS_ROLE_ID not in roles_ids
-        ):
+        # ADMIN autorisé partout
+        is_admin = ADMIN_ROLE_NAME in roles_names
+
+        # Bdmin autorisé uniquement sur le serveur 1
+        is_bdmin = (
+            interaction.guild.id == SERVEUR_1_ID
+            and BDMIN_ROLE_ID in roles_ids
+        )
+
+        # DEV PS autorisé uniquement sur le serveur 2
+        is_dev_ps = (
+            interaction.guild.id == SERVEUR_2_ID
+            and DEV_PS_ROLE_ID in roles_ids
+        )
+
+        if not (is_admin or is_bdmin or is_dev_ps):
             return await interaction.response.send_message(
                 "❌ Tu n’es pas autorisé.",
                 ephemeral=True
@@ -86,23 +106,30 @@ class PariCog(commands.Cog):
             inline=False
         )
 
-        # IDENTIQUE À TON CODE ORIGINAL
+        # Comportement d'origine :
+        # l'embed apparaît là où la commande est utilisée
         await interaction.response.send_message(embed=embed)
 
-        # Seul ajout : choix de l'ID selon le serveur
+        # Choix du salon dédié selon le serveur
         if interaction.guild.id == SERVEUR_1_ID:
-            channel = self.bot.get_channel(PARIS_CHANNEL_ID_SERVEUR_1)
+            channel = self.bot.get_channel(
+                PARIS_CHANNEL_ID_SERVEUR_1
+            )
 
         elif interaction.guild.id == SERVEUR_2_ID:
-            channel = self.bot.get_channel(PARIS_CHANNEL_ID_SERVEUR_2)
+            channel = self.bot.get_channel(
+                PARIS_CHANNEL_ID_SERVEUR_2
+            )
 
         else:
             channel = None
 
-        # IDENTIQUE À TON CODE ORIGINAL
+        # Envoi dans le salon dédié
         if channel:
             await channel.send(embed=embed)
-            await channel.send(f"Bonne chance {joueur.mention} 🍀")
+            await channel.send(
+                f"Bonne chance {joueur.mention} 🍀"
+            )
 
 
 async def setup(bot):
