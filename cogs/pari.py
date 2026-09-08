@@ -89,6 +89,16 @@ class PariCog(commands.Cog):
         cote_kamazone = round(cote_winamax * 0.8, 2)
         gain = round(mise_val * cote_kamazone, 2)
 
+        # Nom affiché selon le serveur
+        if interaction.guild.id == SERVEUR_1_ID:
+            nom_cote = "Kamazon"
+
+        elif interaction.guild.id == SERVEUR_2_ID:
+            nom_cote = "Kamas Island"
+
+        else:
+            nom_cote = "Kamazon"
+
         embed = discord.Embed(
             title="🎰 Pari Sportif",
             color=0xFFD700
@@ -100,14 +110,13 @@ class PariCog(commands.Cog):
 🎮 Joueur        │ {joueur.display_name}
 💰 Mise          │ {format_kamas(mise_val)}
 🎲 Winamax       │ {cote_winamax}
-⚡ Kamazon       │ {cote_kamazone}
+⚡ {nom_cote:<13} │ {cote_kamazone}
 🏆 Gain          │ {format_kamas(gain)}
 ```""",
             inline=False
         )
 
-        # Comportement d'origine :
-        # l'embed apparaît là où la commande est utilisée
+        # L'embed apparaît là où la commande est utilisée
         await interaction.response.send_message(embed=embed)
 
         # Choix du salon dédié selon le serveur
