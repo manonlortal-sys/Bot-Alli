@@ -45,13 +45,15 @@ GUILDS_CONFIG = {
         "PANEL_CHANNEL_ID": 1358772372831994040,
 
         "BUTTONS": [
-            ("Wanted", "⚔️", discord.ButtonStyle.primary, "ROLE_DEF"),
+            ("GUILDE 1", "1️⃣", discord.ButtonStyle.primary, "ROLE_WANTED_1"),
+            ("GUILDE 2", "2️⃣", discord.ButtonStyle.success, "ROLE_WANTED_2"),
             ("Rush", "🚨", discord.ButtonStyle.danger, "RUSH"),
             ("Test", "⚠️", discord.ButtonStyle.secondary, "ROLE_TEST"),
         ],
 
         "ROLES": {
-            "ROLE_DEF": 1326671483455537172,
+            "ROLE_WANTED_1": 1326671483455537172,
+            "ROLE_WANTED_2": 1564035779024396460,
             "ROLE_TEST": 1358771105980088390,
         }
     }
