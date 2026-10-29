@@ -18,14 +18,14 @@ GUILDS_CONFIG = {
         "PANEL_CHANNEL_ID": None,
 
         "BUTTONS": [
-            ("Wanted 1", discord.PartialEmoji(id=1555659816435716187), discord.ButtonStyle.primary, "ROLE_WANTED_1"),
-            ("Wanted 2", discord.PartialEmoji(id=1555659816435716187), discord.ButtonStyle.primary, "ROLE_WANTED_2"),
-            ("Rhumerie", discord.PartialEmoji(id=1565409655033831464), discord.ButtonStyle.primary, "ROLE_RHUMERIE"),
-            ("Insolence", discord.PartialEmoji(id=1545540106985668608), discord.ButtonStyle.primary, "ROLE_INSOLENCE"),
-            ("Lost Memory", discord.PartialEmoji(id=1541059719035097139), discord.ButtonStyle.primary, "ROLE_LOST_MEMORY"),
-            ("Rush", "🚨", discord.ButtonStyle.danger, "RUSH"),
-            ("Test", "⚠️", discord.ButtonStyle.secondary, "ROLE_TEST"),
-        ],
+    ("Wanted 1", discord.PartialEmoji(name="wanted", id=1555659816435716187), discord.ButtonStyle.primary, "ROLE_WANTED_1"),
+    ("Wanted 2", discord.PartialEmoji(name="wanted", id=1555659816435716187), discord.ButtonStyle.primary, "ROLE_WANTED_2"),
+    ("Rhumerie", discord.PartialEmoji(name="rhumerie", id=1565409655033831464), discord.ButtonStyle.primary, "ROLE_RHUMERIE"),
+    ("Insolence", discord.PartialEmoji(name="insolence", id=1545540106985668608), discord.ButtonStyle.primary, "ROLE_INSOLENCE"),
+    ("Lost Memory", discord.PartialEmoji(name="lostmemory", id=1541059719035097139), discord.ButtonStyle.primary, "ROLE_LOST_MEMORY"),
+    ("Rush", "🚨", discord.ButtonStyle.danger, "RUSH"),
+    ("Test", "⚠️", discord.ButtonStyle.secondary, "ROLE_TEST"),
+],
 
         "ROLES": {
             "ROLE_WANTED_1": 1419320456263237663,
