@@ -18,11 +18,11 @@ GUILDS_CONFIG = {
         "PANEL_CHANNEL_ID": None,
 
         "BUTTONS": [
-            ("Wanted 1", "🗡️", discord.ButtonStyle.primary, "ROLE_WANTED_1"),
-            ("Wanted 2", "🗡️", discord.ButtonStyle.primary, "ROLE_WANTED_2"),
-            ("La peste", "🗡️", discord.ButtonStyle.primary, "ROLE_PESTE"),
-            ("Insolence", "🗡️", discord.ButtonStyle.primary, "ROLE_INSOLENCE"),
-            ("Lost Memory", "🗡️", discord.ButtonStyle.primary, "ROLE_LOST_MEMORY"),
+            ("Wanted 1", discord.PartialEmoji(id=1555659816435716187), discord.ButtonStyle.primary, "ROLE_WANTED_1"),
+            ("Wanted 2", discord.PartialEmoji(id=1555659816435716187), discord.ButtonStyle.primary, "ROLE_WANTED_2"),
+            ("Rhumerie", discord.PartialEmoji(id=1565409655033831464), discord.ButtonStyle.primary, "ROLE_RHUMERIE"),
+            ("Insolence", discord.PartialEmoji(id=1545540106985668608), discord.ButtonStyle.primary, "ROLE_INSOLENCE"),
+            ("Lost Memory", discord.PartialEmoji(id=1541059719035097139), discord.ButtonStyle.primary, "ROLE_LOST_MEMORY"),
             ("Rush", "🚨", discord.ButtonStyle.danger, "RUSH"),
             ("Test", "⚠️", discord.ButtonStyle.secondary, "ROLE_TEST"),
         ],
@@ -31,7 +31,7 @@ GUILDS_CONFIG = {
             "ROLE_WANTED_1": 1419320456263237663,
             "ROLE_WANTED_2": 1421860260377006295,
             "ROLE_TEST": 1421867268421320844,
-            "ROLE_PESTE": 1421927858967810110,
+            "ROLE_RHUMERIE": 1421927858967810110,
             "ROLE_LOST_MEMORY": 1519049947809321092,
             "ROLE_INSOLENCE": 1519049377325387878,
         }
