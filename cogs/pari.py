@@ -1,3 +1,4 @@
+
 import discord
 from discord.ext import commands
 from discord import app_commands
@@ -61,7 +62,7 @@ class PariCog(commands.Cog):
         # ADMIN autorisé partout
         is_admin = ADMIN_ROLE_NAME in roles_names
 
-        # Bdmin autorisé uniquement sur le serveur 1
+        # BDMIN autorisé uniquement sur le serveur 1
         is_bdmin = (
             interaction.guild.id == SERVEUR_1_ID
             and BDMIN_ROLE_ID in roles_ids
@@ -73,7 +74,19 @@ class PariCog(commands.Cog):
             and DEV_PS_ROLE_ID in roles_ids
         )
 
-        if not (is_admin or is_bdmin or is_dev_ps):
+        # BOOKMAKER autorisé uniquement sur le serveur 2
+        is_bookmaker = (
+            interaction.guild.id == SERVEUR_2_ID
+            and BOOKMAKER_ROLE_ID in roles_ids
+        )
+
+        # Vérification des autorisations
+        if not (
+            is_admin
+            or is_bdmin
+            or is_dev_ps
+            or is_bookmaker
+        ):
             return await interaction.response.send_message(
                 "❌ Tu n’es pas autorisé.",
                 ephemeral=True
