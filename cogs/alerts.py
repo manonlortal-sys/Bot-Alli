@@ -23,6 +23,8 @@ GUILDS_CONFIG = {
     ("Rhumerie", discord.PartialEmoji(name="rhumerie", id=1565409655033831464), discord.ButtonStyle.primary, "ROLE_RHUMERIE"),
     ("Insolence", discord.PartialEmoji(name="insolence", id=1545540106985668608), discord.ButtonStyle.primary, "ROLE_INSOLENCE"),
     ("Lost Memory", discord.PartialEmoji(name="lostmemory", id=1541059719035097139), discord.ButtonStyle.primary, "ROLE_LOST_MEMORY"),
+			("S13", "⚔️" discord.ButtonStyle.primary, "ROLE_SECTION_13_2"),
+			("S13 2", "⚔️" discord.ButtonStyle.primary, "ROLE_SECTION_13"),
     ("Rush", "🚨", discord.ButtonStyle.danger, "RUSH"),
     ("Test", "⚠️", discord.ButtonStyle.secondary, "ROLE_TEST"),
 ],
@@ -34,6 +36,8 @@ GUILDS_CONFIG = {
             "ROLE_RHUMERIE": 1421927858967810110,
             "ROLE_LOST_MEMORY": 1519049947809321092,
             "ROLE_INSOLENCE": 1519049377325387878,
+										"ROLE_SECTION_13_2": 1437841408856948776,
+										"ROLE_SECTION_13": 1519049377325387878,
         }
     },
 
